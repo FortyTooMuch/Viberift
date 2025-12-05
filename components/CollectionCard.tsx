@@ -2,6 +2,7 @@ import React from 'react';
 
 interface CollectionCardProps {
   collection: any;
+  metadata?: { totalValue: number };
   menuOpen: string | null;
   setMenuOpen: (id: string | null) => void;
   onRename: (c: any) => void;
@@ -12,6 +13,7 @@ interface CollectionCardProps {
 
 const CollectionCard: React.FC<CollectionCardProps> = ({
   collection: c,
+  metadata,
   menuOpen,
   setMenuOpen,
   onRename,
@@ -130,10 +132,26 @@ const CollectionCard: React.FC<CollectionCardProps> = ({
                 background: 'linear-gradient(180deg, rgba(12,10,8,0.6) 0%, rgba(8,6,5,0.95) 100%)',
               }}
             >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#c8bcaa', fontSize: 12 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, color: '#c8bcaa', fontSize: 12 }}>
                 <span style={{ padding: '4px 8px', borderRadius: 999, background: 'rgba(212,175,55,0.14)', color: '#f4cf67', border: '1px solid rgba(212,175,55,0.28)' }}>
                   Created {new Date(c.created_at).toLocaleDateString()}
                 </span>
+                {metadata && (
+                  <div
+                    style={{
+                      padding: '4px 8px',
+                      borderRadius: 4,
+                      background: 'rgba(212,175,55,0.15)',
+                      border: '1px solid rgba(212,175,55,0.4)',
+                      color: '#d4af37',
+                      fontSize: 12,
+                      fontWeight: 'bold',
+                    }}
+                    title="Total vault value (average price)"
+                  >
+                    €{metadata.totalValue.toFixed(2)}
+                  </div>
+                )}
               </div>
             </div>
           </a>

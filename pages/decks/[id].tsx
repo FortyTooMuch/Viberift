@@ -19,6 +19,9 @@ type Card = {
   might?: number;
   rarity?: string;
   image_url?: string;
+  collector_number?: string;
+  abilities_text?: string;
+  flavor_text?: string;
 };
 
 type DeckCard = {
@@ -49,6 +52,42 @@ type ValidationResult = {
 
 type Zone = 'legend' | 'champion' | 'battlefield' | 'rune' | 'main' | 'side';
 
+const renderDescription = (text?: string) => {
+  if (!text) return 'No description available.';
+
+  const lines = text.split(/<br\s*\/?\s*>/i);
+
+  const renderWord = (word: string, index: number) => {
+    const bare = word.replace(/[^A-Za-z0-9]/g, '');
+    const isCaps = bare.length > 1 && /[A-Z]/.test(bare) && bare === bare.toUpperCase();
+    if (!isCaps) return <React.Fragment key={index}>{word}</React.Fragment>;
+    return (
+      <span
+        key={index}
+        style={{
+          padding: '0 6px',
+          border: '1px solid rgba(212,175,55,0.6)',
+          borderRadius: '6px',
+          margin: '0 2px',
+          display: 'inline-block'
+        }}
+      >
+        {word}
+      </span>
+    );
+  };
+
+  return lines.map((line, lineIdx) => (
+    <React.Fragment key={lineIdx}>
+      {line
+        .split(/(\s+)/)
+        .filter((token) => token.length > 0)
+        .map((word, wordIdx) => renderWord(word, wordIdx))}
+      {lineIdx < lines.length - 1 && <br />}
+    </React.Fragment>
+  ));
+};
+
 const ZONE_CONFIGS = {
   legend: { name: 'Legend', icon: Crown, max: 1, color: '#d4af37' },
   champion: { name: 'Chosen Champion', icon: Sword, max: 1, color: '#ff6b6b' },
@@ -78,13 +117,63 @@ export default function DeckBuilder() {
   const [powerFilter, setPowerFilter] = useState<number | null>(null);
   const [mightFilter, setMightFilter] = useState<number | null>(null);
   const [rarityFilter, setRarityFilter] = useState<string | null>(null);
+  const [domainFilter, setDomainFilter] = useState<string | null>(null);
 
   const [loading, setLoading] = useState(true);
   const [notification, setNotification] = useState<string | null>(null);
+  const [variantModalCard, setVariantModalCard] = useState<Card | null>(null);
+  const [variantModalVariants, setVariantModalVariants] = useState<Card[]>([]);
+  const [detailModalCard, setDetailModalCard] = useState<Card | null>(null);
+  const [preferredVariantMap, setPreferredVariantMap] = useState<Record<string, string>>({});
+  const [rememberVariantSelection, setRememberVariantSelection] = useState(true);
+  const [variantModalMode, setVariantModalMode] = useState<'add' | 'choose'>('add');
+  const [selectedVariantCardMap, setSelectedVariantCardMap] = useState<Record<string, Card>>({});
+  const [hoverPreviewCard, setHoverPreviewCard] = useState<Card | null>(null);
+  const [hoverPreviewPosition, setHoverPreviewPosition] = useState<{ x: number; y: number } | null>(null);
+  const hoverTimerRef = React.useRef<NodeJS.Timeout | null>(null);
 
   const showNotification = (message: string) => {
     setNotification(message);
     setTimeout(() => setNotification(null), 2000);
+  };
+
+  const normalizeDomains = (domains?: string[]) => {
+    if (!domains) return [] as string[];
+    return domains
+      .flatMap((d) => d.split(/[,;]+/))
+      .map((d) => d.trim())
+      .filter(Boolean);
+  };
+
+  const getBaseName = (cardName: string): string => {
+    // Remove variant suffixes like (Overnumbered), (Alternate Art), (Signed), etc.
+    return cardName
+      .replace(/\s*\(Overnumbered\)\s*/gi, '')
+      .replace(/\s*\(Alternate Art\)\s*/gi, '')
+      .replace(/\s*\(Signed\)\s*/gi, '')
+      .replace(/\s*Overnumbered\s*/gi, '')
+      .replace(/\s*Alternate Art\s*/gi, '')
+      .trim();
+  };
+
+  const getCardVariants = (card: Card): Card[] => {
+    const baseName = getBaseName(card.name);
+    return allCards.filter(c => getBaseName(c.name) === baseName && c.category === card.category);
+  };
+
+  const getDisplayCard = (card: Card): Card => {
+    const baseName = getBaseName(card.name);
+    const selected = selectedVariantCardMap[baseName];
+    return selected || card;
+  };
+
+  const getCardById = (cardId: string): Card | undefined => {
+    return allCards.find((c) => c.card_id === cardId);
+  };
+
+  const getDeckCardBaseName = (deckCard: DeckCard): string => {
+    const resolved = deckCard.card || getCardById(deckCard.card_id);
+    return resolved ? getBaseName(resolved.name) : deckCard.card_id;
   };
 
   const toggleZone = (zone: Zone) => {
@@ -137,8 +226,18 @@ export default function DeckBuilder() {
   }, [deck, deckCards]);
 
   const legendDomains = useMemo(() => {
-    return legendCard?.domains || [];
+    return normalizeDomains(legendCard?.domains);
   }, [legendCard]);
+
+  const legendBaseName = useMemo(() => {
+    return getBaseName(legendCard?.name || '').toLowerCase();
+  }, [legendCard]);
+
+  const legendRootName = useMemo(() => {
+    if (!legendBaseName) return '';
+    const parts = legendBaseName.split(/[^a-z0-9]+/i).filter(Boolean);
+    return (parts[0] || '').toLowerCase();
+  }, [legendBaseName]);
 
   const legendChampionTag = useMemo(() => {
     if (!legendCard?.tags) return null;
@@ -150,8 +249,137 @@ export default function DeckBuilder() {
     return deckCards.find(dc => dc.card_id === deck.champion_card_id)?.card;
   }, [deck, deckCards]);
 
+  const availableFilterValues = useMemo(() => {
+    const energyValues = new Set<number>();
+    const powerValues = new Set<number>();
+    const mightValues = new Set<number>();
+    const rarityValues = new Set<string>();
+    const domainValues = new Set<string>();
+
+    allCards.forEach(card => {
+      if (card.energy_cost !== undefined && card.energy_cost !== null) energyValues.add(card.energy_cost);
+      if (card.power_cost !== undefined && card.power_cost !== null) powerValues.add(card.power_cost);
+      if (card.might !== undefined && card.might !== null) mightValues.add(card.might);
+      if (card.rarity) rarityValues.add(card.rarity);
+      if (card.domains) {
+        normalizeDomains(card.domains).forEach(d => domainValues.add(d));
+      }
+    });
+
+    return {
+      energy: Array.from(energyValues).sort((a, b) => a - b),
+      power: Array.from(powerValues).sort((a, b) => a - b),
+      might: Array.from(mightValues).sort((a, b) => a - b),
+      rarity: Array.from(rarityValues).sort(),
+      domain: Array.from(domainValues).sort()
+    };
+  }, [allCards]);
+
   const getZoneCards = (zone: Zone) => {
     return deckCards.filter(dc => dc.zone === zone);
+  };
+
+  const getIllegalReason = (deckCard: DeckCard): string | null => {
+    const card = deckCard.card;
+    if (!card) return null;
+    const config = ZONE_CONFIGS[deckCard.zone as Zone];
+    const cardDomains = normalizeDomains(card.domains);
+
+    // Zone/category checks
+    if (deckCard.zone === 'legend' && card.category !== 'Legend') return 'Must be a Legend';
+    if (deckCard.zone === 'champion') {
+      if (card.category !== 'Champion Unit') return 'Must be a Champion Unit';
+      if (legendChampionTag && !card.tags?.includes(legendChampionTag)) return 'Does not match Legend tag';
+      if (legendRootName) {
+        const champBase = getBaseName(card.name).toLowerCase();
+        if (!champBase.includes(legendRootName)) return 'Does not match Legend name';
+      }
+      if (legendDomains.length > 0 && cardDomains.length > 0 && !cardDomains.every((d) => legendDomains.includes(d))) {
+        return `Domains must match Legend (has: ${cardDomains.join(', ')}; allowed: ${legendDomains.join(', ')})`;
+      }
+    }
+    if (deckCard.zone === 'battlefield' && card.category !== 'Battlefield') return 'Must be a Battlefield';
+    if (deckCard.zone === 'rune') {
+      if (card.category !== 'Rune') return 'Must be a Rune';
+      if (legendDomains.length > 0 && cardDomains.length > 0 && !cardDomains.every((d) => legendDomains.includes(d))) {
+        return `Domains must match Legend (has: ${cardDomains.join(', ')}; allowed: ${legendDomains.join(', ')})`;
+      }
+    }
+    if (deckCard.zone === 'main' || deckCard.zone === 'side') {
+      if (['Legend', 'Rune', 'Battlefield'].includes(card.category)) return 'Wrong type for this zone';
+      if (legendDomains.length > 0 && cardDomains.length > 0 && !cardDomains.every((d) => legendDomains.includes(d))) {
+        return `Domains must match Legend (has: ${cardDomains.join(', ')}; allowed: ${legendDomains.join(', ')})`;
+      }
+    }
+
+    // Quantity checks
+    const zoneCount = getZoneCount(deckCard.zone as Zone);
+    if (config && zoneCount > config.max) {
+      return `Too many ${config.name}`;
+    }
+
+    if (deckCard.zone !== 'legend' && deckCard.zone !== 'champion') {
+      const baseName = getDeckCardBaseName(deckCard);
+      const totalCopies = deckCards
+        .filter((dc) => getDeckCardBaseName(dc) === baseName)
+        .reduce((sum, dc) => sum + dc.quantity, 0);
+      if (deckCard.zone === 'rune' && totalCopies > ZONE_CONFIGS.rune.max) {
+        return `Over ${ZONE_CONFIGS.rune.max} copies`;
+      }
+      if (deckCard.zone !== 'rune' && totalCopies > 3) return 'Over 3 copies';
+    }
+
+    return null;
+  };
+
+  const getChecklistIssue = (key: keyof ValidationChecks): string | null => {
+    if (key === 'hasLegend') {
+      if (!legendCard) return 'Add a Legend in the Legend zone.';
+      return null;
+    }
+    if (key === 'hasChampion') {
+      const champ = deckCards.find((dc) => dc.zone === 'champion');
+      if (!champ) return 'Add a Champion Unit in the Champion zone.';
+      return null;
+    }
+    if (key === 'championMatchesLegend') {
+      const champ = deckCards.find((dc) => dc.zone === 'champion');
+      if (!champ) return 'Add a Champion Unit in the Champion zone.';
+      return getIllegalReason(champ);
+    }
+    if (key === 'runesComplete') {
+      const need = ZONE_CONFIGS.rune.max;
+      const count = getZoneCount('rune');
+      if (count < need) return `Add ${need - count} more runes (need ${need} total).`;
+      if (count > need) return `Reduce runes to ${need} max.`;
+      return null;
+    }
+    if (key === 'runesDomainMatch') {
+      const firstBad = getZoneCards('rune').find((dc) => getIllegalReason(dc));
+      return firstBad ? getIllegalReason(firstBad) : null;
+    }
+    if (key === 'battlefieldsComplete') {
+      const need = ZONE_CONFIGS.battlefield.max;
+      const count = getZoneCount('battlefield');
+      if (count < need) return `Add ${need - count} more battlefields (need ${need} total).`;
+      if (count > need) return `Reduce battlefields to ${need} max.`;
+      return null;
+    }
+    if (key === 'mainBoardComplete') {
+      const need = ZONE_CONFIGS.main.max;
+      const count = getZoneCount('main');
+      if (count < need) return `Add ${need - count} more cards to your main deck (need ${need} total).`;
+      if (count > need) return `Reduce main deck to ${need} max.`;
+      return null;
+    }
+    if (key === 'cardLimitsValid') {
+      const firstBad = deckCards.find((dc) => {
+        const reason = getIllegalReason(dc);
+        return reason && reason.includes('Over');
+      });
+      return firstBad ? getIllegalReason(firstBad) : null;
+    }
+    return null;
   };
 
   const getZoneCount = (zone: Zone) => {
@@ -160,6 +388,8 @@ export default function DeckBuilder() {
 
   const filteredCards = useMemo(() => {
     let filtered = allCards.filter(card => {
+      const cardDomains = normalizeDomains(card.domains);
+
       // Search query
       if (searchQuery && !card.name.toLowerCase().includes(searchQuery.toLowerCase())) {
         return false;
@@ -174,32 +404,39 @@ export default function DeckBuilder() {
       // Zone-specific filters
       switch (selectedZone) {
         case 'legend':
-          if (card.category !== 'legend') return false;
+          if (card.category !== 'Legend') return false;
           break;
         
         case 'champion':
-          if (card.category !== 'champion') return false;
+          if (card.category !== 'Champion Unit') return false;
           if (legendChampionTag && !card.tags?.includes(legendChampionTag)) return false;
+          if (legendRootName) {
+            const champBase = getBaseName(card.name).toLowerCase();
+            if (!champBase.includes(legendRootName)) return false;
+          }
+          if (legendDomains.length > 0) {
+            if (!cardDomains.every(d => legendDomains.includes(d))) return false;
+          }
           break;
         
         case 'battlefield':
-          if (card.category !== 'battlefield') return false;
+          if (card.category !== 'Battlefield') return false;
           break;
         
         case 'rune':
-          if (card.category !== 'rune') return false;
+          if (card.category !== 'Rune') return false;
           if (legendDomains.length > 0) {
-            if (!card.domains?.some(d => legendDomains.includes(d))) return false;
+            if (!cardDomains.every(d => legendDomains.includes(d))) return false;
           }
           break;
         
         case 'main':
         case 'side':
           // Exclude legends, runes, battlefields
-          if (['legend', 'rune', 'battlefield'].includes(card.category)) return false;
+          if (['Legend', 'Rune', 'Battlefield'].includes(card.category)) return false;
           // Filter by domain if legend is selected
           if (legendDomains.length > 0) {
-            if (!card.domains?.some(d => legendDomains.includes(d))) return false;
+            if (!cardDomains.every(d => legendDomains.includes(d))) return false;
           }
           break;
       }
@@ -215,28 +452,84 @@ export default function DeckBuilder() {
       
       // Rarity filter
       if (rarityFilter && card.rarity !== rarityFilter) return false;
+      
+      // Domain filter
+      if (domainFilter && !cardDomains.includes(domainFilter)) return false;
 
       return true;
     });
 
-    return filtered;
-  }, [allCards, selectedZone, searchQuery, showOwnedOnly, legendDomains, legendChampionTag, energyFilter, powerFilter, mightFilter, rarityFilter, deckCards]);
+    // Group by base name to show only one card per variant group
+    const seen = new Set<string>();
+    const uniqueFiltered = filtered.filter(card => {
+      const baseName = getBaseName(card.name);
+      const key = `${baseName}-${card.category}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+
+    return uniqueFiltered;
+  }, [allCards, selectedZone, searchQuery, showOwnedOnly, legendDomains, legendChampionTag, energyFilter, powerFilter, mightFilter, rarityFilter, domainFilter, deckCards]);
 
   const addCard = async (card: Card) => {
     if (!session?.access_token || !id) return;
 
+    // Check if there are multiple variants
+    const variants = getCardVariants(card);
+    if (variants.length > 1) {
+      const baseName = getBaseName(card.name);
+      const selectedVariant = selectedVariantCardMap[baseName];
+      if (selectedVariant) {
+        await addCardVariant(selectedVariant);
+        return;
+      }
+
+      const preferredId = preferredVariantMap[baseName];
+      const preferredVariant = preferredId ? variants.find(v => v.card_id === preferredId) : null;
+
+      if (preferredVariant) {
+        setSelectedVariantCardMap((prev) => ({ ...prev, [baseName]: preferredVariant }));
+        await addCardVariant(preferredVariant);
+        return;
+      }
+
+      // No preference yet: just add the current card variant without forcing a selection
+      setSelectedVariantCardMap((prev) => ({ ...prev, [baseName]: card }));
+      await addCardVariant(card);
+      return;
+    }
+
+    // Proceed with adding single variant
+    await addCardVariant(card);
+  };
+
+  const addCardVariant = async (card: Card) => {
+    if (!session?.access_token || !id) return;
+
     const zone: Zone = selectedZone;
+    const baseName = getBaseName(card.name);
+
+    setSelectedVariantCardMap((prev) => ({ ...prev, [baseName]: card }));
     
-    // Check if card already exists in deck (any zone for 3-copy limit)
+    // Check if card already exists in deck (any zone for copy limit)
     const existing = deckCards.find(dc => dc.card_id === card.card_id && dc.zone === zone);
-    const totalCopies = deckCards
-      .filter(dc => dc.card_id === card.card_id)
+    const totalCopiesByBase = deckCards
+      .filter((dc) => getDeckCardBaseName(dc) === baseName)
       .reduce((sum, dc) => sum + dc.quantity, 0);
 
-    // Enforce 3-copy limit (except legend/champion which are limited to 1 by zone)
-    if (zone !== 'legend' && zone !== 'champion' && totalCopies >= 3) {
-      showNotification(`You can only have 3 copies of "${card.name}" in your deck.`);
-      return;
+    // Enforce copy limits (runes can go higher up to zone max)
+    if (zone !== 'legend' && zone !== 'champion') {
+      if (zone === 'rune') {
+        const maxRunes = ZONE_CONFIGS.rune.max;
+        if (totalCopiesByBase >= maxRunes) {
+          showNotification(`You can only have ${maxRunes} copies of "${card.name}" in your runes.`);
+          return;
+        }
+      } else if (totalCopiesByBase >= 3) {
+        showNotification(`You can only have 3 copies of "${card.name}" in your deck.`);
+        return;
+      }
     }
 
     // Enforce single-card zones
@@ -387,6 +680,71 @@ export default function DeckBuilder() {
     }
   };
 
+  const updateDeckCardQuantity = async (deckCard: DeckCard, quantity: number) => {
+    if (!session?.access_token || !id) return;
+
+    const baseName = getDeckCardBaseName(deckCard);
+    const totalOther = deckCards
+      .filter((dc) => dc.id !== deckCard.id && getDeckCardBaseName(dc) === baseName)
+      .reduce((sum, dc) => sum + dc.quantity, 0);
+
+    if (quantity <= 0) {
+      await removeCard(deckCard);
+      return;
+    }
+
+    if (deckCard.zone === 'legend' || deckCard.zone === 'champion') {
+      if (quantity > 1) {
+        showNotification(`You can only have one ${deckCard.zone}.`);
+        return;
+      }
+    } else if (deckCard.zone === 'rune') {
+      const maxRunes = ZONE_CONFIGS.rune.max;
+      if (totalOther + quantity > maxRunes) {
+        showNotification(`You can only have up to ${maxRunes} copies of a rune card.`);
+        quantity = Math.max(0, maxRunes - totalOther);
+      }
+    } else {
+      if (totalOther + quantity > 3) {
+        showNotification('You can only have up to 3 copies of a card.');
+        quantity = Math.max(0, 3 - totalOther);
+      }
+    }
+
+    try {
+      // Optimistic update
+      setDeckCards((prev) => prev.map((dc) => (dc.id === deckCard.id ? { ...dc, quantity } : dc)));
+
+      const res = await fetch(`/api/decks/${id}/cards`, {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          card_id: deckCard.card_id,
+          zone: deckCard.zone,
+          quantity
+        })
+      });
+
+      if (!res.ok) {
+        await loadDeck();
+        return;
+      }
+
+      const validationRes = await fetch(`/api/decks/${id}/validate`, {
+        headers: { Authorization: `Bearer ${session.access_token}` }
+      });
+      if (validationRes.ok) {
+        setValidation(await validationRes.json());
+      }
+    } catch (error) {
+      console.error('Update quantity error:', error);
+      await loadDeck();
+    }
+  };
+
   if (loading) {
     return (
       <Layout>
@@ -419,6 +777,136 @@ export default function DeckBuilder() {
           textAlign: 'center'
         }}>
           {notification}
+        </div>
+      )}
+
+      {/* Card Detail Modal */}
+      {detailModalCard && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0,0,0,0.85)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 10000,
+            padding: '24px'
+          }}
+          onClick={() => setDetailModalCard(null)}
+        >
+          <div
+            style={{
+              background: 'linear-gradient(135deg, rgba(15,12,9,0.98), rgba(26,20,16,0.98))',
+              border: '2px solid rgba(212,175,55,0.5)',
+              borderRadius: '12px',
+              padding: '20px',
+              maxWidth: '900px',
+              width: '100%',
+              display: 'grid',
+              gridTemplateColumns: '1.2fr 1fr',
+              gap: '20px'
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ position: 'relative', background: 'rgba(15,12,9,0.95)', borderRadius: '10px', overflow: 'hidden' }}>
+              {detailModalCard.image_url ? (
+                <img
+                  src={`/api/proxy-image?url=${encodeURIComponent(detailModalCard.image_url)}`}
+                  alt={detailModalCard.name}
+                  style={{ width: '100%', height: 'auto', display: 'block' }}
+                />
+              ) : (
+                <div style={{ height: '480px', background: 'linear-gradient(135deg, rgba(42,35,28,0.9), rgba(30,25,20,0.9))' }} />
+              )}
+              <div style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                border: '4px solid rgba(42,35,28,0.95)',
+                borderRadius: '10px',
+                pointerEvents: 'none'
+              }} />
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <div>
+                <h2 style={{ margin: 0, color: '#f0e6d2', fontFamily: 'Cinzel, serif', fontSize: '1.4rem' }}>
+                  {detailModalCard.name}
+                </h2>
+                <div style={{ color: '#c5ba9b', fontSize: '0.9rem', marginTop: '4px' }}>
+                  {detailModalCard.category}
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', color: '#d4af37', fontSize: '0.9rem' }}>
+                {detailModalCard.domains?.map((d) => (
+                  <span key={d} style={{ padding: '4px 8px', border: '1px solid rgba(212,175,55,0.5)', borderRadius: '6px' }}>{d}</span>
+                ))}
+                {detailModalCard.rarity && (
+                  <span style={{ padding: '4px 8px', border: '1px solid rgba(212,175,55,0.5)', borderRadius: '6px' }}>{detailModalCard.rarity}</span>
+                )}
+              </div>
+              <div style={{ color: '#f0e6d2', fontSize: '0.95rem', lineHeight: 1.4 }}>
+                {renderDescription(detailModalCard.abilities_text || detailModalCard.flavor_text)}
+              </div>
+              {![
+                'Legend',
+                'Battlefield',
+                'Rune'
+              ].includes(detailModalCard.category) && (
+                <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', color: '#a0a0a0', fontSize: '0.9rem' }}>
+                  <span>Energy: {detailModalCard.energy_cost ?? '—'}</span>
+                  <span>Power: {detailModalCard.power_cost ?? '—'}</span>
+                  {![
+                    'Gear',
+                    'Spell'
+                  ].includes(detailModalCard.category) && (
+                    <span>Might: {detailModalCard.might ?? '—'}</span>
+                  )}
+                </div>
+              )}
+              <div style={{ display: 'flex', gap: '8px', marginTop: 'auto' }}>
+                <button
+                  onClick={() => {
+                    addCard(detailModalCard);
+                    setDetailModalCard(null);
+                  }}
+                  style={{
+                    flex: 1,
+                    padding: '10px',
+                    background: 'rgba(74,222,128,0.2)',
+                    border: '1px solid #4ade80',
+                    borderRadius: '8px',
+                    color: '#4ade80',
+                    cursor: 'pointer',
+                    fontWeight: 'bold',
+                    fontSize: '14px'
+                  }}
+                >
+                  Add to Deck
+                </button>
+                <button
+                  onClick={() => setDetailModalCard(null)}
+                  style={{
+                    padding: '10px',
+                    background: 'rgba(248,113,113,0.15)',
+                    border: '1px solid #f87171',
+                    borderRadius: '8px',
+                    color: '#f87171',
+                    cursor: 'pointer',
+                    fontWeight: 'bold',
+                    fontSize: '14px'
+                  }}
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
       
@@ -467,16 +955,20 @@ export default function DeckBuilder() {
                 </h3>
               </div>
               {Object.entries(validation.checks)
-                .filter(([key]) => key !== 'runesDomainMatch' && key !== 'championMatchesLegend' && key !== 'cardLimitsValid')
+                .filter(([key, value]) => !value)
                 .map(([key, value]) => {
                 const labelMap: Record<string, string> = {
                   hasLegend: 'Legend',
                   hasChampion: 'Champion',
+                  championMatchesLegend: 'Champion matches Legend',
                   runesComplete: 'Runes',
+                  runesDomainMatch: 'Runes match Legend domains',
                   battlefieldsComplete: 'Battlefields',
-                  mainBoardComplete: 'Main'
+                  mainBoardComplete: 'Main',
+                  cardLimitsValid: 'Copy limits'
                 };
                 const friendly = labelMap[key] ?? key.replace(/([A-Z])/g, ' $1').trim();
+                const issue = getChecklistIssue(key as keyof ValidationChecks);
                 return (
                 <div 
                   key={key} 
@@ -487,12 +979,17 @@ export default function DeckBuilder() {
                     fontSize: '0.8rem', 
                     marginBottom: '8px',
                     padding: '6px',
-                    background: value ? 'rgba(74,222,128,0.1)' : 'rgba(248,113,113,0.1)',
+                    background: 'rgba(248,113,113,0.1)',
                     borderRadius: '4px',
-                    color: value ? '#4ade80' : '#f87171'
+                    color: '#f87171',
+                    cursor: issue ? 'pointer' : 'default'
+                  }}
+                  onClick={() => {
+                    if (!issue) return;
+                    showNotification(issue);
                   }}
                 >
-                  {value ? <Check size={14} /> : <X size={14} />}
+                  <X size={14} />
                   <span style={{ flex: 1 }}>
                     {friendly}
                   </span>
@@ -553,21 +1050,49 @@ export default function DeckBuilder() {
           {/* Search and Filters */}
           <div style={{ padding: '0.75rem 1rem', borderBottom: '2px solid rgba(212,175,55,0.3)', position: 'sticky', top: 0, background: 'rgba(15,12,9,0.98)', zIndex: 10 }}>
             <div style={{ display: 'flex', gap: '8px', marginBottom: '12px', alignItems: 'center' }}>
-              <input
-                type="text"
-                placeholder="Search cards..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                style={{
-                  flex: 1,
-                  padding: '8px 12px',
-                  background: 'rgba(26,20,16,0.6)',
-                  border: '1px solid #3d352d',
-                  borderRadius: '4px',
-                  color: '#f0e6d2',
-                  fontSize: '14px'
-                }}
-              />
+              <div style={{ flex: 1, position: 'relative', display: 'flex', alignItems: 'center' }}>
+                <input
+                  type="text"
+                  placeholder="Search cards..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '8px 36px 8px 12px',
+                    background: 'rgba(26,20,16,0.6)',
+                    border: '1px solid #3d352d',
+                    borderRadius: '4px',
+                    color: '#f0e6d2',
+                    fontSize: '14px'
+                  }}
+                />
+                {searchQuery && (
+                  <button
+                    onClick={() => setSearchQuery('')}
+                    style={{
+                      position: 'absolute',
+                      right: '8px',
+                      padding: '4px',
+                      background: 'transparent',
+                      border: 'none',
+                      color: '#a0a0a0',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      transition: 'color 0.2s'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.color = '#f87171';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.color = '#a0a0a0';
+                    }}
+                  >
+                    <X size={16} />
+                  </button>
+                )}
+              </div>
               <button
                 onClick={() => setShowOwnedOnly(!showOwnedOnly)}
                 aria-pressed={showOwnedOnly}
@@ -610,7 +1135,7 @@ export default function DeckBuilder() {
                 }}
               >
                 <option value="">Energy: All</option>
-                {[0, 1, 2, 3, 4, 5, 6, 7, 8].map(n => (
+                {availableFilterValues.energy.map(n => (
                   <option key={n} value={n}>{n}</option>
                 ))}
               </select>
@@ -628,7 +1153,25 @@ export default function DeckBuilder() {
                 }}
               >
                 <option value="">Power: All</option>
-                {[0, 1, 2, 3, 4, 5, 6, 7, 8].map(n => (
+                {availableFilterValues.power.map(n => (
+                  <option key={n} value={n}>{n}</option>
+                ))}
+              </select>
+
+              <select
+                value={mightFilter ?? ''}
+                onChange={(e) => setMightFilter(e.target.value ? Number(e.target.value) : null)}
+                style={{
+                  padding: '6px 10px',
+                  background: 'rgba(26,20,16,0.6)',
+                  border: '1px solid #3d352d',
+                  borderRadius: '4px',
+                  color: '#f0e6d2',
+                  fontSize: '13px'
+                }}
+              >
+                <option value="">Might: All</option>
+                {availableFilterValues.might.map(n => (
                   <option key={n} value={n}>{n}</option>
                 ))}
               </select>
@@ -646,10 +1189,27 @@ export default function DeckBuilder() {
                 }}
               >
                 <option value="">Rarity: All</option>
-                <option value="Common">Common</option>
-                <option value="Rare">Rare</option>
-                <option value="Epic">Epic</option>
-                <option value="Legendary">Legendary</option>
+                {availableFilterValues.rarity.map(r => (
+                  <option key={r} value={r}>{r}</option>
+                ))}
+              </select>
+
+              <select
+                value={domainFilter ?? ''}
+                onChange={(e) => setDomainFilter(e.target.value || null)}
+                style={{
+                  padding: '6px 10px',
+                  background: 'rgba(26,20,16,0.6)',
+                  border: '1px solid #3d352d',
+                  borderRadius: '4px',
+                  color: '#f0e6d2',
+                  fontSize: '13px'
+                }}
+              >
+                <option value="">Domain: All</option>
+                {availableFilterValues.domain.map(d => (
+                  <option key={d} value={d}>{d}</option>
+                ))}
               </select>
             </div>
           </div>
@@ -662,20 +1222,32 @@ export default function DeckBuilder() {
               gap: '1rem' 
             }}>
               {filteredCards.map((card) => {
-                const inDeck = deckCards.find(dc => dc.card_id === card.card_id && dc.zone === selectedZone);
-                const quantity = inDeck?.quantity || 0;
+                const displayCard = getDisplayCard(card);
+                const baseName = getBaseName(card.name);
+                const matchingDeckCards = deckCards.filter((dc) => {
+                  if (dc.zone !== selectedZone) return false;
+                  const resolvedCard = dc.card || getCardById(dc.card_id);
+                  const resolvedName = resolvedCard ? getBaseName(resolvedCard.name) : '';
+                  return resolvedName === baseName;
+                });
+                const quantity = matchingDeckCards.reduce((sum, dc) => sum + dc.quantity, 0);
+                const inDeck = matchingDeckCards[0];
+                const variants = getCardVariants(card);
+                const hasMultipleVariants = variants.length > 1;
 
                 return (
                   <div
                     key={card.card_id}
-                    style={{
-                      background: 'rgba(26,26,46,0.9)',
+                    style={{background: 'rgba(42,35,28,0.95)',
                       border: '2px solid rgba(212,175,55,0.3)',
                       borderRadius: '8px',
                       overflow: 'hidden',
                       cursor: 'pointer',
-                      transition: 'all 0.2s'
+                      transition: 'all 0.2s',
+                      display: 'flex',
+                      flexDirection: 'column'
                     }}
+                    onClick={() => setDetailModalCard(displayCard)}
                     onMouseEnter={(e) => {
                       e.currentTarget.style.transform = 'translateY(-4px)';
                       e.currentTarget.style.borderColor = 'rgba(212,175,55,0.6)';
@@ -686,12 +1258,37 @@ export default function DeckBuilder() {
                     }}
                   >
                     <div style={{ 
-                      height: '200px', 
-                      background: card.image_url ? `url(/api/proxy-image?url=${encodeURIComponent(card.image_url)})` : 'linear-gradient(135deg, rgba(26,26,46,0.9), rgba(40,40,60,0.9))',
-                      backgroundSize: 'cover',
-                      backgroundPosition: 'center',
-                      position: 'relative'
+                      position: 'relative',
+                      width: '100%',
+                      background: 'rgba(15,12,9,0.95)'
                     }}>
+                      {displayCard.image_url ? (
+                        <>
+                          <img 
+                            src={`/api/proxy-image?url=${encodeURIComponent(displayCard.image_url)}`}
+                            alt={displayCard.name}
+                            style={{
+                              width: '100%',
+                              height: 'auto',
+                              display: 'block'
+                            }}
+                          />
+                          <div style={{
+                            position: 'absolute',
+                            top: 0,
+                            left: 0,
+                            right: 0,
+                            bottom: 0,
+                            border: '3px solid rgba(42,35,28,0.95)',
+                            pointerEvents: 'none'
+                          }} />
+                        </>
+                      ) : (
+                        <div style={{
+                          height: '200px',
+                          background: 'linear-gradient(135deg, rgba(42,35,28,0.9), rgba(30,25,20,0.9))'
+                        }} />
+                      )}
                       {quantity > 0 && (
                         <div style={{
                           position: 'absolute',
@@ -707,20 +1304,38 @@ export default function DeckBuilder() {
                           {quantity}x
                         </div>
                       )}
+                      {hasMultipleVariants && (
+                        <div style={{
+                          position: 'absolute',
+                          top: '8px',
+                          left: '8px',
+                          background: 'rgba(138,43,226,0.95)',
+                          color: '#fff',
+                          padding: '4px 8px',
+                          borderRadius: '4px',
+                          fontWeight: 'bold',
+                          fontSize: '11px'
+                        }}>
+                          {variants.length} variants
+                        </div>
+                      )}
                     </div>
-                    <div style={{ padding: '12px' }}>
-                      <div style={{ fontWeight: 'bold', fontSize: '14px', marginBottom: '4px', color: '#f0e6d2' }}>
-                        {card.name}
+                    <div style={{ padding: '8px', display: 'flex', flexDirection: 'column', flex: 1 }}>
+                      <div style={{ fontWeight: 'bold', fontSize: '13px', marginBottom: '3px', color: '#f0e6d2' }}>
+                        {displayCard.name}
                       </div>
-                      <div style={{ fontSize: '12px', color: '#a0a0a0', marginBottom: '8px' }}>
+                      <div style={{ fontSize: '11px', color: '#a0a0a0', marginBottom: '6px', flex: 1 }}>
                         {card.category}
                       </div>
                       <div style={{ display: 'flex', gap: '4px' }}>
                         <button
-                          onClick={() => addCard(card)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            addCard(card);
+                          }}
                           style={{
                             flex: 1,
-                            padding: '6px',
+                            padding: '4px',
                             background: 'rgba(74,222,128,0.2)',
                             border: '1px solid #4ade80',
                             borderRadius: '4px',
@@ -729,18 +1344,48 @@ export default function DeckBuilder() {
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'center',
-                            gap: '4px',
-                            fontSize: '12px'
+                            gap: '3px',
+                            fontSize: '11px'
                           }}
+                          title="Add"
                         >
-                          <Plus size={14} /> Add
+                          <Plus size={12} />
                         </button>
+                        {hasMultipleVariants && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setRememberVariantSelection(false);
+                              setVariantModalMode('choose');
+                              setVariantModalCard(card);
+                              setVariantModalVariants(variants);
+                            }}
+                            style={{
+                              padding: '4px',
+                              background: 'rgba(147,197,253,0.2)',
+                              border: '1px solid #93c5fd',
+                              borderRadius: '4px',
+                              color: '#bfdbfe',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              gap: '3px',
+                              fontSize: '11px'
+                            }}
+                          >
+                            <List size={12} />
+                          </button>
+                        )}
                         {quantity > 0 && (
                           <button
-                            onClick={() => inDeck && removeCard(inDeck)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              inDeck && removeCard(inDeck);
+                            }}
                             style={{
                               flex: 1,
-                              padding: '6px',
+                              padding: '4px',
                               background: 'rgba(248,113,113,0.2)',
                               border: '1px solid #f87171',
                               borderRadius: '4px',
@@ -749,11 +1394,12 @@ export default function DeckBuilder() {
                               display: 'flex',
                               alignItems: 'center',
                               justifyContent: 'center',
-                              gap: '4px',
-                              fontSize: '12px'
+                              gap: '3px',
+                              fontSize: '11px'
                             }}
+                            title="Remove"
                           >
-                            <Minus size={14} /> Remove
+                            <Minus size={12} />
                           </button>
                         )}
                       </div>
@@ -787,48 +1433,75 @@ export default function DeckBuilder() {
 
             return (
               <div key={zone} style={{ marginBottom: '12px' }}>
-                {/* Zone Header Button */}
-                <button
-                  onClick={() => {
-                    toggleZone(zone);
-                    setSelectedZone(zone);
-                  }}
+                {/* Zone Header with split actions: left selects filter, right toggles list */}
+                <div
                   style={{
-                    width: '100%',
-                    padding: '12px',
-                    background: isSelected ? `${config.color}20` : 'rgba(42,37,32,0.5)',
-                    border: `2px solid ${isSelected ? config.color : 'rgba(212,175,55,0.2)'}`,
-                    borderRadius: '6px',
-                    color: config.color,
-                    cursor: 'pointer',
                     display: 'flex',
-                    alignItems: 'center',
-                    gap: '10px',
-                    transition: 'all 0.2s',
-                    fontFamily: 'Cinzel, serif'
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = `${config.color}30`;
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = isSelected ? `${config.color}20` : 'rgba(42,37,32,0.5)';
+                    width: '100%',
+                    borderRadius: '6px',
+                    overflow: 'hidden',
+                    border: `2px solid ${isSelected ? config.color : 'rgba(212,175,55,0.2)'}`,
+                    background: isSelected ? `${config.color}20` : 'rgba(42,37,32,0.5)',
+                    transition: 'all 0.2s'
                   }}
                 >
-                  <Icon size={20} />
-                  <div style={{ flex: 1, textAlign: 'left' }}>
-                    <div style={{ fontSize: '0.95rem', fontWeight: 'bold' }}>{config.name}</div>
-                    <div style={{ fontSize: '0.75rem', color: '#a0a0a0', marginTop: '2px' }}>
-                      {count} / {config.max}
+                  <button
+                    onClick={() => setSelectedZone(zone)}
+                    style={{
+                      flex: 1,
+                      padding: '12px',
+                      background: 'transparent',
+                      border: 'none',
+                      color: config.color,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '10px',
+                      textAlign: 'left',
+                      fontFamily: 'Cinzel, serif'
+                    }}
+                  >
+                    <Icon size={20} />
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: '0.95rem', fontWeight: 'bold' }}>{config.name}</div>
+                      <div style={{ fontSize: '0.75rem', color: '#a0a0a0', marginTop: '2px' }}>
+                        {count} / {config.max}
+                      </div>
                     </div>
-                  </div>
-                  <div style={{ 
-                    fontSize: '1.2rem',
-                    transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
-                    transition: 'transform 0.2s'
-                  }}>
-                    ▼
-                  </div>
-                </button>
+                  </button>
+                  <button
+                    onClick={() => toggleZone(zone)}
+                    aria-label="Toggle zone list"
+                    style={{
+                      width: '46px',
+                      background: 'rgba(26,20,16,0.7)',
+                      border: 'none',
+                      borderLeft: '1px solid rgba(212,175,55,0.3)',
+                      color: config.color,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: '1.1rem',
+                      transition: 'background 0.2s'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = 'rgba(26,20,16,0.9)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = 'rgba(26,20,16,0.7)';
+                    }}
+                  >
+                    <div
+                      style={{
+                        transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
+                        transition: 'transform 0.2s'
+                      }}
+                    >
+                      ▼
+                    </div>
+                  </button>
+                </div>
 
                 {/* Expanded Card List */}
                 {isExpanded && cards.length > 0 && (
@@ -839,77 +1512,158 @@ export default function DeckBuilder() {
                     flexDirection: 'column',
                     gap: '6px'
                   }}>
-                    {cards.map((dc) => (
-                      <div
-                        key={dc.id}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '10px',
-                          padding: '10px',
-                          background: 'rgba(42,37,32,0.5)',
-                          border: `1px solid ${config.color}40`,
-                          borderRadius: '6px',
-                          transition: 'all 0.2s'
-                        }}
-                        onMouseEnter={(e) => {
-                          e.currentTarget.style.background = 'rgba(42,37,32,0.8)';
-                          e.currentTarget.style.borderColor = `${config.color}80`;
-                        }}
-                        onMouseLeave={(e) => {
-                          e.currentTarget.style.background = 'rgba(42,37,32,0.5)';
-                          e.currentTarget.style.borderColor = `${config.color}40`;
-                        }}
-                      >
-                        <div style={{ 
-                          minWidth: '28px',
-                          height: '28px',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          background: `${config.color}30`,
-                          border: `2px solid ${config.color}`,
-                          borderRadius: '4px',
-                          fontWeight: 'bold', 
-                          color: config.color,
-                          fontSize: '0.85rem'
-                        }}>
-                          {dc.quantity}x
-                        </div>
-                        <div style={{ flex: 1 }}>
-                          <div style={{ color: '#f0e6d2', fontSize: '0.85rem', fontWeight: '500' }}>
-                            {dc.card?.name || dc.card_id}
-                          </div>
-                          {dc.is_owned && (
-                            <div style={{ fontSize: '0.7rem', color: '#4ade80', marginTop: '2px' }}>
-                              ✓ Owned
-                            </div>
-                          )}
-                        </div>
-                        <button
-                          onClick={() => removeCard(dc)}
+                    {cards.map((dc) => {
+                      const resolvedCard = dc.card || getCardById(dc.card_id);
+                      const displayCard = resolvedCard ? getDisplayCard(resolvedCard) : null;
+                      const illegalReason = getIllegalReason(dc);
+                      return (
+                        <div
+                          key={dc.id}
                           style={{
-                            padding: '6px',
-                            background: 'rgba(248,113,113,0.2)',
-                            border: '1px solid #f87171',
-                            borderRadius: '4px',
-                            color: '#f87171',
-                            cursor: 'pointer',
                             display: 'flex',
                             alignItems: 'center',
-                            transition: 'all 0.2s'
+                            gap: '10px',
+                            padding: '10px',
+                            background: illegalReason ? 'rgba(248,113,113,0.15)' : 'rgba(42,37,32,0.5)',
+                            border: illegalReason ? '1px solid rgba(248,113,113,0.5)' : `1px solid ${config.color}40`,
+                            borderRadius: '6px',
+                            transition: 'all 0.2s',
+                            cursor: 'pointer'
+                          }}
+                          onClick={() => {
+                            if (displayCard) {
+                              const baseName = getBaseName(displayCard.name);
+                              setSearchQuery(baseName);
+                              setSelectedZone(dc.zone as Zone);
+                            }
                           }}
                           onMouseEnter={(e) => {
-                            e.currentTarget.style.background = 'rgba(248,113,113,0.3)';
+                            e.currentTarget.style.background = illegalReason ? 'rgba(248,113,113,0.25)' : 'rgba(42,37,32,0.8)';
+                            e.currentTarget.style.borderColor = illegalReason ? 'rgba(248,113,113,0.8)' : `${config.color}80`;
+                            if (displayCard) {
+                              const rect = e.currentTarget.getBoundingClientRect();
+                              hoverTimerRef.current = setTimeout(() => {
+                                const previewWidth = 300;
+                                const previewHeight = 420;
+                                let x = rect.left - previewWidth - 10;
+                                let y = rect.top;
+                                
+                                // Check if preview would go off left edge
+                                if (x < 10) {
+                                  x = rect.right + 10;
+                                }
+                                
+                                // Check if preview would go off right edge
+                                if (x + previewWidth > window.innerWidth - 10) {
+                                  x = window.innerWidth - previewWidth - 10;
+                                }
+                                
+                                // Check if preview would go off bottom edge
+                                if (y + previewHeight > window.innerHeight - 10) {
+                                  y = window.innerHeight - previewHeight - 10;
+                                }
+                                
+                                // Check if preview would go off top edge
+                                if (y < 10) {
+                                  y = 10;
+                                }
+                                
+                                setHoverPreviewCard(displayCard);
+                                setHoverPreviewPosition({ x, y });
+                              }, 500);
+                            }
                           }}
                           onMouseLeave={(e) => {
-                            e.currentTarget.style.background = 'rgba(248,113,113,0.2)';
+                            e.currentTarget.style.background = illegalReason ? 'rgba(248,113,113,0.15)' : 'rgba(42,37,32,0.5)';
+                            e.currentTarget.style.borderColor = illegalReason ? 'rgba(248,113,113,0.5)' : `${config.color}40`;
+                            if (hoverTimerRef.current) {
+                              clearTimeout(hoverTimerRef.current);
+                              hoverTimerRef.current = null;
+                            }
+                            setHoverPreviewCard(null);
+                            setHoverPreviewPosition(null);
                           }}
                         >
-                          <Minus size={14} />
-                        </button>
-                      </div>
-                    ))}
+                          <input
+                            type="number"
+                            min={dc.zone === 'legend' || dc.zone === 'champion' ? 1 : 0}
+                            max={dc.zone === 'legend' || dc.zone === 'champion' ? 1 : (dc.zone === 'rune' ? ZONE_CONFIGS.rune.max : 3)}
+                            value={dc.quantity}
+                            onChange={(e) => {
+                              const raw = Number(e.target.value);
+                              if (Number.isNaN(raw)) return;
+                              setDeckCards((prev) => prev.map((item) => item.id === dc.id ? { ...item, quantity: raw } : item));
+                            }}
+                            onBlur={(e) => {
+                              const raw = Number(e.target.value);
+                              if (Number.isNaN(raw)) {
+                                updateDeckCardQuantity(dc, dc.quantity);
+                                return;
+                              }
+                              const min = dc.zone === 'legend' || dc.zone === 'champion' ? 1 : 0;
+                              const max = dc.zone === 'legend' || dc.zone === 'champion' ? 1 : (dc.zone === 'rune' ? ZONE_CONFIGS.rune.max : 3);
+                              const clamped = Math.min(Math.max(raw, min), max);
+                              updateDeckCardQuantity(dc, clamped);
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.currentTarget.blur();
+                              }
+                            }}
+                            style={{
+                              width: '38px',
+                              height: '26px',
+                              textAlign: 'center',
+                              background: `${config.color}25`,
+                              border: `1px solid ${config.color}`,
+                              borderRadius: '4px',
+                              color: config.color,
+                              fontWeight: 'bold',
+                              fontSize: '0.85rem',
+                              padding: '0 4px'
+                            }}
+                            title="Set quantity"
+                          />
+                          <div style={{ flex: 1 }}>
+                            <div style={{ color: '#f0e6d2', fontSize: '0.85rem', fontWeight: '500' }}>
+                              {displayCard?.name || dc.card?.name || dc.card_id}
+                            </div>
+                            {dc.is_owned && (
+                              <div style={{ fontSize: '0.7rem', color: '#4ade80', marginTop: '2px' }}>
+                                ✓ Owned
+                              </div>
+                            )}
+                            {illegalReason && (
+                              <div style={{ fontSize: '0.75rem', color: '#fca5a5', marginTop: '4px' }}>
+                                {illegalReason}
+                              </div>
+                            )}
+                          </div>
+                          <button
+                            onClick={() => removeCard(dc)}
+                            style={{
+                              padding: '6px',
+                              background: 'rgba(248,113,113,0.2)',
+                              border: '1px solid #f87171',
+                              borderRadius: '4px',
+                              color: '#f87171',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              transition: 'all 0.2s'
+                            }}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.background = 'rgba(248,113,113,0.3)';
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.background = 'rgba(248,113,113,0.2)';
+                            }}
+                          >
+                            <Minus size={14} />
+                          </button>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
 
@@ -931,6 +1685,183 @@ export default function DeckBuilder() {
           })}
         </div>
       </div>
+
+      {/* Variant Selection Modal */}
+      {variantModalCard && variantModalVariants.length > 0 && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0,0,0,0.8)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 10000
+          }}
+          onClick={() => {
+            setVariantModalCard(null);
+            setVariantModalVariants([]);
+          }}
+        >
+          <div
+            style={{
+              background: 'linear-gradient(135deg, rgba(26,20,16,0.98), rgba(15,12,9,0.98))',
+              border: '2px solid rgba(212,175,55,0.5)',
+              borderRadius: '12px',
+              padding: '24px',
+              maxWidth: '800px',
+              maxHeight: '80vh',
+              overflowY: 'auto'
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 style={{ margin: '0 0 16px 0', fontFamily: 'Cinzel, serif', color: '#d4af37', fontSize: '1.5rem' }}>
+              Choose Variant
+            </h2>
+            <p style={{ margin: '0 0 24px 0', color: '#a0a0a0', fontSize: '14px' }}>
+              Select which version of "{getBaseName(variantModalCard.name)}" to {variantModalMode === 'add' ? 'add to your deck' : 'use'}:
+            </p>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px', color: '#d4af37', fontSize: '13px' }}>
+              <input
+                type="checkbox"
+                checked={rememberVariantSelection}
+                onChange={(e) => setRememberVariantSelection(e.target.checked)}
+              />
+              Remember this variant for future adds
+            </label>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '16px' }}>
+              {variantModalVariants.map(variant => (
+                <div
+                  key={variant.card_id}
+                  onClick={() => {
+                    const baseName = getBaseName(variantModalCard.name);
+                    if (rememberVariantSelection) {
+                      setPreferredVariantMap((prev) => ({ ...prev, [baseName]: variant.card_id }));
+                    }
+                    setSelectedVariantCardMap((prev) => ({ ...prev, [baseName]: variant }));
+                    if (variantModalMode === 'add') {
+                      addCardVariant(variant);
+                    }
+                    setVariantModalCard(null);
+                    setVariantModalVariants([]);
+                  }}
+                  style={{
+                    background: 'rgba(42,35,28,0.95)',
+                    border: '2px solid rgba(212,175,55,0.3)',
+                    borderRadius: '8px',
+                    overflow: 'hidden',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.transform = 'scale(1.05)';
+                    e.currentTarget.style.borderColor = 'rgba(212,175,55,0.6)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.transform = 'scale(1)';
+                    e.currentTarget.style.borderColor = 'rgba(212,175,55,0.3)';
+                  }}
+                >
+                  <div style={{
+                    position: 'relative',
+                    width: '100%',
+                    background: 'rgba(15,12,9,0.95)'
+                  }}>
+                    {variant.image_url ? (
+                      <>
+                        <img 
+                          src={`/api/proxy-image?url=${encodeURIComponent(variant.image_url)}`}
+                          alt={variant.name}
+                          style={{
+                            width: '100%',
+                            height: 'auto',
+                            display: 'block'
+                          }}
+                        />
+                        <div style={{
+                          position: 'absolute',
+                          top: 0,
+                          left: 0,
+                          right: 0,
+                          bottom: 0,
+                          border: '3px solid rgba(26,20,16,0.98)',
+                          pointerEvents: 'none'
+                        }} />
+                      </>
+                    ) : (
+                      <div style={{
+                        height: '280px',
+                        background: 'linear-gradient(135deg, rgba(42,35,28,0.9), rgba(30,25,20,0.9))'
+                      }} />
+                    )}
+                  </div>
+                  <div style={{ padding: '8px', textAlign: 'center' }}>
+                    <div style={{ fontWeight: 'bold', fontSize: '13px', color: '#f0e6d2', marginBottom: '4px' }}>
+                      {variant.name}
+                    </div>
+                    <div style={{ fontSize: '11px', color: '#a0a0a0' }}>
+                      #{variant.collector_number}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <button
+              onClick={() => {
+                setVariantModalCard(null);
+                setVariantModalVariants([]);
+              }}
+              style={{
+                marginTop: '24px',
+                padding: '10px 20px',
+                background: 'rgba(248,113,113,0.2)',
+                border: '1px solid #f87171',
+                borderRadius: '6px',
+                color: '#f87171',
+                cursor: 'pointer',
+                width: '100%',
+                fontSize: '14px',
+                fontWeight: 'bold'
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Hover Preview Overlay */}
+      {hoverPreviewCard && hoverPreviewPosition && (
+        <div
+          style={{
+            position: 'fixed',
+            left: `${hoverPreviewPosition.x}px`,
+            top: `${hoverPreviewPosition.y}px`,
+            zIndex: 9998,
+            pointerEvents: 'none',
+            width: '300px',
+            background: 'rgba(15,12,9,0.98)',
+            border: '2px solid rgba(212,175,55,0.6)',
+            borderRadius: '10px',
+            overflow: 'hidden',
+            boxShadow: '0 8px 24px rgba(0,0,0,0.6)'
+          }}
+        >
+          {hoverPreviewCard.image_url ? (
+            <img
+              src={`/api/proxy-image?url=${encodeURIComponent(hoverPreviewCard.image_url)}`}
+              alt={hoverPreviewCard.name}
+              style={{ width: '100%', height: 'auto', display: 'block' }}
+            />
+          ) : (
+            <div style={{ height: '420px', background: 'linear-gradient(135deg, rgba(42,35,28,0.9), rgba(30,25,20,0.9))' }} />
+          )}
+        </div>
+      )}
+
       <style jsx>{`
         .deck-builder button {
           box-shadow: none !important;

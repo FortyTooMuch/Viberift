@@ -51,7 +51,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       <nav style={nav}>
         <div style={navInner}>
           <a href="/" style={brand}>
-            <Hammer size={20} style={{ display: 'inline-block', verticalAlign: 'middle', marginRight: 8 }} />
             Rift Architect
           </a>
           <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>

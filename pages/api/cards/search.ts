@@ -23,7 +23,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // Search cards table - if no query, return all cards (limited)
     let queryBuilder = supabase
       .from('cards')
-      .select('card_id, name, set_name, collector_number, category, rarity, image_url, tags, domains, energy_cost, power_cost, might')
+      .select('card_id, name, set_name, collector_number, category, rarity, image_url, tags, domains, energy_cost, power_cost, might, abilities_text, flavor_text')
       .limit(500);
 
     if (query && query.length >= 2) {
@@ -50,7 +50,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         domains: Array.isArray(c.domains) ? c.domains : [],
         energy_cost: c.energy_cost,
         power_cost: c.power_cost,
-        might: c.might
+        might: c.might,
+        abilities_text: c.abilities_text,
+        flavor_text: c.flavor_text
       }))
     });
   } catch (err: any) {

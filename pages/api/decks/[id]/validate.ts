@@ -27,6 +27,14 @@ type ValidationResult = {
   };
 };
 
+function normalizeDomains(domains?: string[]): string[] {
+  if (!domains) return [];
+  return domains
+    .flatMap((d) => d.split(/[,;]+/))
+    .map((d) => d.trim())
+    .filter(Boolean);
+}
+
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const token = req.headers.authorization?.replace(/^Bearer\s+/, '') ?? null;
   const user = await getUserFromToken(token);
@@ -99,7 +107,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     legendCard = cardMap.get(deck.legend_card_id) ?? null;
     if (legendCard) {
       result.checks.hasLegend = true;
-      legendDomains = legendCard.domains || [];
+      legendDomains = normalizeDomains(legendCard.domains);
       
       // Extract champion tag from legend tags (e.g., "sett")
       if (legendCard.tags && Array.isArray(legendCard.tags)) {
@@ -116,14 +124,24 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   let championCard: Card | null = null;
   if (deck.champion_card_id) {
     championCard = cardMap.get(deck.champion_card_id) ?? null;
-    if (championCard && championCard.category === 'champion') {
+    if (championCard && championCard.category === 'Champion Unit') {
       result.checks.hasChampion = true;
 
-      // Check if champion matches legend
-      if (legendChampionTag && championCard.tags?.includes(legendChampionTag)) {
+      // Check if champion matches legend (tag and domains)
+      const championDomains = normalizeDomains(championCard.domains);
+      const tagMatches = !legendChampionTag || championCard.tags?.includes(legendChampionTag);
+      const domainsMatch = legendDomains.length === 0 || championDomains.length === 0 || 
+                          championDomains.every((d: string) => legendDomains.includes(d));
+      
+      if (tagMatches && domainsMatch) {
         result.checks.championMatchesLegend = true;
       } else {
-        result.errors.push(`Champion must match legend's champion type (${legendChampionTag || 'unknown'})`);
+        if (!tagMatches) {
+          result.errors.push(`Champion must match legend's champion type (${legendChampionTag || 'unknown'})`);
+        }
+        if (!domainsMatch) {
+          result.errors.push(`Champion domains must match legend domains`);
+        }
       }
     }
   } else {
@@ -144,8 +162,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (legendDomains.length > 0) {
     const invalidRunes = runes.filter((r: any) => {
       const card = cardMap.get(r.card_id);
-      if (!card || !card.domains) return true;
-      return !card.domains.some((d: string) => legendDomains.includes(d));
+      if (!card) return false;
+      const runeDomains = normalizeDomains(card.domains);
+      if (runeDomains.length === 0) return false;
+      return !runeDomains.every((d: string) => legendDomains.includes(d));
     });
 
     if (invalidRunes.length === 0) {
@@ -153,6 +173,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     } else {
       result.errors.push(`All runes must match legend domains (${legendDomains.join(', ')})`);
     }
+  } else {
+    result.checks.runesDomainMatch = true;
   }
 
   // Check battlefields (3 cards)

@@ -327,7 +327,7 @@ export default function CollectionView({}) {
             const priceChangePercent = boughtAt && boughtAt > 0 ? ((currentPrice - boughtAt) / boughtAt) * 100 : null;
             
             return (
-              <div key={i.id} className="card-item">
+              <div key={i.id} className="card-item" onClick={() => openCardDetail(i)}>
                 <div className="card-actions">
                   <button className="action-btn edit-btn" onClick={(e) => { e.stopPropagation(); openEditModal(i); }} title="Edit">
                     <Edit size={16} />
@@ -336,54 +336,85 @@ export default function CollectionView({}) {
                     <Trash2 size={16} />
                   </button>
                 </div>
-                <div className="card-image-container" onClick={() => openCardDetail(i)} style={{ cursor: 'pointer' }}>
+                <div className="card-image-container">
                   {cardImage ? (
-                    <img 
-                      src={cardImage} 
-                      alt={cardName} 
-                      className="card-image"
-                      onError={(e) => {
-                        // Hide image if it fails to load
-                        e.currentTarget.style.display = 'none';
-                      }}
-                    />
+                    <>
+                      <img 
+                        src={cardImage} 
+                        alt={cardName} 
+                        className="card-image"
+                        onError={(e) => {
+                          e.currentTarget.style.display = 'none';
+                        }}
+                      />
+                      <div style={{
+                        position: 'absolute',
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        border: '3px solid rgba(42,35,28,0.95)',
+                        pointerEvents: 'none'
+                      }} />
+                    </>
                   ) : (
                     <div className="card-placeholder">
                       <div>{cardName}</div>
                     </div>
                   )}
-                  <div className="card-overlay">
-                    <div className="card-name">{cardName}</div>
-                    <div className="card-details">
-                      <span className="card-quantity">Qty: {i.quantity}</span>
-                      <span className="card-condition">{i.condition}</span>
-                      {i.language && <span className="card-language">{i.language}</span>}
-                    </div>
-                  </div>
-                </div>
-                <div className="card-prices">
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                    <span style={{ fontSize: '1rem', color: '#d4af37' }}>€</span>
-                    <span style={{ fontSize: '1rem', fontWeight: 'bold', color: '#f0e6d2' }}>{(p.lowest * i.quantity).toFixed(2)}</span>
-                  </div>
-                  {priceChange !== null && (
-                    <div 
-                      style={{ 
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '0.3rem',
-                        color: priceChange >= 0 ? '#4ade80' : '#f87171',
-                        fontWeight: 'bold',
-                        fontSize: '0.95rem'
-                      }}
-                    >
-                      {priceChange >= 0 ? '▲' : '▼'}
-                      <span>€{Math.abs(priceChange).toFixed(2)}</span>
-                      {priceChangePercent !== null && (
-                        <span style={{ fontSize: '0.85em', opacity: 0.9 }}>({priceChangePercent >= 0 ? '+' : ''}{priceChangePercent.toFixed(0)}%)</span>
-                      )}
+                  {i.quantity > 1 && (
+                    <div style={{
+                      position: 'absolute',
+                      top: '8px',
+                      right: '8px',
+                      background: 'rgba(212,175,55,0.95)',
+                      color: '#1a1a2e',
+                      padding: '4px 8px',
+                      borderRadius: '4px',
+                      fontWeight: 'bold',
+                      fontSize: '14px'
+                    }}>
+                      {i.quantity}x
                     </div>
                   )}
+                </div>
+                <div style={{ padding: '8px', display: 'flex', flexDirection: 'column', flex: 1 }}>
+                  <div className="card-name">{cardName}</div>
+                  <div className="card-details" style={{ flex: 1 }}>
+                    <span className="card-quantity">Qty: {i.quantity}</span>
+                    {' • '}
+                    <span className="card-condition">{i.condition}</span>
+                    {i.language && (
+                      <>
+                        {' • '}
+                        <span className="card-language">{i.language}</span>
+                      </>
+                    )}
+                  </div>
+                  <div className="card-prices" style={{ margin: '6px -8px -8px', padding: '8px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                      <span style={{ fontSize: '1rem', color: '#d4af37' }}>€</span>
+                      <span style={{ fontSize: '1rem', fontWeight: 'bold', color: '#f0e6d2' }}>{(p.lowest * i.quantity).toFixed(2)}</span>
+                    </div>
+                    {priceChange !== null && (
+                      <div 
+                        style={{ 
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '0.3rem',
+                          color: priceChange >= 0 ? '#4ade80' : '#f87171',
+                          fontWeight: 'bold',
+                          fontSize: '0.85rem'
+                        }}
+                      >
+                        {priceChange >= 0 ? '▲' : '▼'}
+                        <span>€{Math.abs(priceChange).toFixed(2)}</span>
+                        {priceChangePercent !== null && (
+                          <span style={{ fontSize: '0.85em', opacity: 0.9 }}>({priceChangePercent >= 0 ? '+' : ''}{priceChangePercent.toFixed(0)}%)</span>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             );
@@ -799,7 +830,7 @@ export default function CollectionView({}) {
         }
 
         .totals-card {
-          background: rgba(26, 26, 46, 0.8);
+          background: rgba(42,35,28,0.95);
           border: 2px solid rgba(212, 175, 55, 0.3);
           border-radius: 8px;
           padding: 1.5rem;
@@ -809,24 +840,26 @@ export default function CollectionView({}) {
 
         .cards-grid {
           display: grid;
-          grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-          gap: 1.5rem;
+          grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+          gap: 1rem;
           margin-bottom: 2rem;
         }
 
         .card-item {
-          background: rgba(26, 26, 46, 0.9);
-          border: 2px solid rgba(212, 175, 55, 0.3);
+          background: rgba(42,35,28,0.95);
+          border: 2px solid rgba(212,175,55,0.3);
           border-radius: 8px;
           overflow: hidden;
-          transition: all 0.3s ease;
+          transition: all 0.2s;
           position: relative;
+          display: flex;
+          flex-direction: column;
+          cursor: pointer;
         }
 
         .card-item:hover {
           transform: translateY(-4px);
-          box-shadow: 0 8px 16px rgba(212, 175, 55, 0.4);
-          border-color: rgba(212, 175, 55, 0.6);
+          border-color: rgba(212,175,55,0.6);
         }
 
         .card-item:hover .card-actions {
@@ -885,57 +918,38 @@ export default function CollectionView({}) {
         .card-image-container {
           position: relative;
           width: 100%;
-          padding-bottom: 140%;
-          overflow: hidden;
-          background: #000;
+          background: rgba(15,12,9,0.95);
         }
 
         .card-image {
-          position: absolute;
-          top: 0;
-          left: 0;
           width: 100%;
-          height: 100%;
-          object-fit: cover;
+          height: auto;
+          display: block;
         }
 
         .card-placeholder {
-          position: absolute;
-          top: 0;
-          left: 0;
-          width: 100%;
-          height: 100%;
+          height: 200px;
+          background: linear-gradient(135deg, rgba(42,35,28,0.9), rgba(30,25,20,0.9));
           display: flex;
           align-items: center;
           justify-content: center;
-          background: linear-gradient(135deg, rgba(26, 26, 46, 0.9), rgba(40, 40, 60, 0.9));
           color: #d4af37;
           font-weight: bold;
           text-align: center;
           padding: 1rem;
         }
 
-        .card-overlay {
-          position: absolute;
-          bottom: 0;
-          left: 0;
-          right: 0;
-          background: linear-gradient(to top, rgba(0, 0, 0, 0.98), rgba(0, 0, 0, 0.85) 50%, rgba(0, 0, 0, 0.4));
-          padding: 0.75rem;
-          color: #f0e6d2;
-        }
-
         .card-name {
           font-weight: bold;
-          font-size: 0.95rem;
-          margin-bottom: 0.5rem;
+          font-size: 13px;
+          margin-bottom: 3px;
           color: #f0e6d2;
         }
 
         .card-details {
-          display: flex;
-          justify-content: space-between;
-          font-size: 0.85rem;
+          font-size: 11px;
+          color: #a0a0a0;
+          margin-bottom: 6px;
         }
 
         .card-quantity {
@@ -946,6 +960,10 @@ export default function CollectionView({}) {
           color: #a0a0a0;
         }
 
+        .card-language {
+          color: #a0a0a0;
+        }
+
         .card-prices {
           padding: 0.6rem 0.75rem;
           display: flex;
@@ -953,6 +971,7 @@ export default function CollectionView({}) {
           align-items: center;
           background: rgba(0, 0, 0, 0.4);
           border-top: 1px solid rgba(212, 175, 55, 0.2);
+          gap: 0.5rem;
         }
 
         .price-item {

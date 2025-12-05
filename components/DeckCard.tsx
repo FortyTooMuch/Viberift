@@ -1,7 +1,9 @@
 import React from 'react';
+import { Check, X } from 'lucide-react';
 
 interface DeckCardProps {
   deck: any;
+  metadata?: { domains: string[]; valid: boolean };
   menuOpen: string | null;
   setMenuOpen: (id: string | null) => void;
   onRename: (d: any) => void;
@@ -13,6 +15,7 @@ interface DeckCardProps {
 
 const DeckCard: React.FC<DeckCardProps> = ({
   deck: d,
+  metadata,
   menuOpen,
   setMenuOpen,
   onRename,
@@ -131,10 +134,69 @@ const DeckCard: React.FC<DeckCardProps> = ({
               background: 'linear-gradient(180deg, rgba(12,10,8,0.6) 0%, rgba(8,6,5,0.95) 100%)',
             }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
               <span style={{ padding: '4px 8px', borderRadius: 999, background: 'rgba(212,175,55,0.14)', color: '#f4cf67', border: '1px solid rgba(212,175,55,0.28)', fontSize: 12 }}>
                 Created {new Date(d.created_at).toLocaleDateString()}
               </span>
+              {metadata && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                  {metadata.domains.length > 0 && (
+                    <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                      {metadata.domains.map((domain, idx) => {
+                        const domainColors: Record<string, { bg: string; border: string; text: string }> = {
+                          Body: { bg: 'rgba(255,140,0,0.15)', border: 'rgba(255,140,0,0.6)', text: '#ff8c00' },
+                          Calm: { bg: 'rgba(34,197,94,0.15)', border: 'rgba(34,197,94,0.6)', text: '#22c55e' },
+                          Chaos: { bg: 'rgba(168,85,247,0.15)', border: 'rgba(168,85,247,0.6)', text: '#a855f7' },
+                          Fury: { bg: 'rgba(239,68,68,0.15)', border: 'rgba(239,68,68,0.6)', text: '#ef4444' },
+                          Mind: { bg: 'rgba(59,130,246,0.15)', border: 'rgba(59,130,246,0.6)', text: '#3b82f6' },
+                          Order: { bg: 'rgba(234,179,8,0.15)', border: 'rgba(234,179,8,0.6)', text: '#eab308' },
+                        };
+                        const colors = domainColors[domain] || { bg: 'rgba(212,175,55,0.15)', border: 'rgba(212,175,55,0.4)', text: '#f4cf67' };
+                        return (
+                          <span
+                            key={idx}
+                            style={{
+                              padding: '2px 6px',
+                              background: colors.bg,
+                              border: `1px solid ${colors.border}`,
+                              color: colors.text,
+                              fontSize: 10,
+                              borderRadius: 4,
+                              textTransform: 'uppercase',
+                              fontWeight: 'bold',
+                              letterSpacing: 0.5,
+                            }}
+                          >
+                            {domain}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  )}
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 3,
+                      padding: '4px 6px',
+                      background: metadata.valid ? 'rgba(74,222,128,0.15)' : 'rgba(248,113,113,0.15)',
+                      border: `1px solid ${metadata.valid ? 'rgba(74,222,128,0.4)' : 'rgba(248,113,113,0.4)'}`,
+                      color: metadata.valid ? '#4ade80' : '#f87171',
+                      fontSize: 10,
+                      borderRadius: 4,
+                      fontWeight: 'bold',
+                    }}
+                    title={metadata.valid ? 'Valid deck' : 'Invalid deck'}
+                  >
+                    {metadata.valid ? <Check size={14} /> : (
+                      <>
+                        <X size={12} />
+                        <span>Invalid</span>
+                      </>
+                    )}
+                  </div>
+                </div>
+              )}
               {onValidate && (
                 <button
                   className="small muted"

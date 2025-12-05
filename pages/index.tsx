@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import Layout from '../components/Layout';
 import Button from '../components/Button';
-import { LogIn, Plus, Layers } from 'lucide-react';
+import { LogIn, Plus, Layers, Check, X } from 'lucide-react';
 import CollectionCard from '../components/CollectionCard';
 import DeckCard from '../components/DeckCard';
 import { TextInputModal, ConfirmModal, ImageModal } from '../components/Modals';
@@ -33,10 +33,118 @@ const Home: React.FC = () => {
   const [cardSearch, setCardSearch] = useState('');
   const [vaultCards, setVaultCards] = useState<any[]>([]);
   const [loadingCards, setLoadingCards] = useState(false);
+  const [deckMetadata, setDeckMetadata] = useState<Record<string, { domains: string[]; valid: boolean }>>({});
+  const [vaultMetadata, setVaultMetadata] = useState<Record<string, { totalValue: number }>>({});
 
   const { collections, setCollections, loading: loadingCollections } = useCollections(user);
   const { decks, setDecks, loading: loadingDecks } = useDecks(user);
   const loading = loadingCollections || loadingDecks;
+
+  useEffect(() => {
+    const fetchDeckMetadata = async () => {
+      if (!user || decks.length === 0) return;
+      const token = await getToken();
+      if (!token) return;
+
+      const metadataPromises = decks.map(async (deck) => {
+        try {
+          const [cardsRes, validationRes] = await Promise.all([
+            fetch(`/api/decks/${deck.id}/cards`, {
+              headers: { Authorization: `Bearer ${token}` },
+            }),
+            fetch(`/api/decks/${deck.id}/validate`, {
+              headers: { Authorization: `Bearer ${token}` },
+            }),
+          ]);
+
+          const cardsData = cardsRes.ok ? await cardsRes.json() : { cards: [] };
+          const validationData = validationRes.ok ? await validationRes.json() : { valid: false };
+
+          // Extract legend card to get domains
+          const legendCard = cardsData.cards?.find((dc: any) => dc.zone === 'legend')?.card;
+          const domains = legendCard?.domains || [];
+          const normalizedDomains = domains
+            .flatMap((d: string) => d.split(/[,;]+/))
+            .map((d: string) => d.trim())
+            .filter(Boolean);
+
+          return { deckId: deck.id, domains: normalizedDomains, valid: validationData.valid };
+        } catch {
+          return { deckId: deck.id, domains: [], valid: false };
+        }
+      });
+
+      const metadata = await Promise.all(metadataPromises);
+      const metadataMap = metadata.reduce((acc, item) => {
+        acc[item.deckId] = { domains: item.domains, valid: item.valid };
+        return acc;
+      }, {} as Record<string, { domains: string[]; valid: boolean }>);
+
+      setDeckMetadata(metadataMap);
+    };
+
+    fetchDeckMetadata();
+  }, [decks, user]);
+
+  useEffect(() => {
+    const fetchVaultMetadata = async () => {
+      if (!user || collections.length === 0) return;
+      const token = await getToken();
+      if (!token) return;
+
+      const metadataPromises = collections.map(async (collection) => {
+        try {
+          const [itemsRes, pricesRes] = await Promise.all([
+            fetch(`/api/collections/${collection.id}/cards`, {
+              headers: { Authorization: `Bearer ${token}` },
+            }),
+            fetch(`/api/collections/${collection.id}/cards`, {
+              headers: { Authorization: `Bearer ${token}` },
+            }),
+          ]);
+
+          const itemsData = itemsRes.ok ? await itemsRes.json() : { items: [] };
+          const items = itemsData.items || [];
+
+          // Fetch prices for all cards in this vault
+          const cardIds = [...new Set(items.map((i: any) => i.card_id))];
+          const pricePromises = cardIds.map(async (cardId: string) => {
+            try {
+              const priceRes = await fetch(`/api/prices?cardId=${encodeURIComponent(cardId)}`);
+              const priceData = await priceRes.json();
+              return { cardId, average: Number(priceData.average ?? 0) };
+            } catch {
+              return { cardId, average: 0 };
+            }
+          });
+
+          const prices = await Promise.all(pricePromises);
+          const priceMap = Object.fromEntries(prices.map(p => [p.cardId, p.average]));
+
+          // Calculate total value
+          let totalValue = 0;
+          for (const item of items) {
+            const price = priceMap[item.card_id] || 0;
+            totalValue += price * (Number(item.quantity) || 1);
+          }
+
+          return { collectionId: collection.id, totalValue };
+        } catch {
+          return { collectionId: collection.id, totalValue: 0 };
+        }
+      });
+
+      const metadata = await Promise.all(metadataPromises);
+      const metadataMap = metadata.reduce((acc, item) => {
+        acc[item.collectionId] = { totalValue: item.totalValue };
+        return acc;
+      }, {} as Record<string, { totalValue: number }>);
+
+      setVaultMetadata(metadataMap);
+    };
+
+    fetchVaultMetadata();
+  }, [collections, user]);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -385,8 +493,11 @@ const Home: React.FC = () => {
         </div>
       ) : !user ? (
         <div style={{ maxWidth: 600, margin: '60px auto', textAlign: 'center', padding: '0 16px' }}>
-          <h1 style={{ fontFamily: 'Cinzel, serif', fontSize: 42, marginBottom: 16 }}>Welcome to the Guild</h1>
-          <p style={{ fontSize: 18, marginBottom: 32 }}>Forge legendary collections. Chronicle card values. Share your vault with the realm.</p>
+          <h1 style={{ fontFamily: 'Cinzel, serif', fontSize: 42, marginBottom: 16 }}>Master Your Collection</h1>
+          <p style={{ fontSize: 18, marginBottom: 32, lineHeight: 1.6 }}>
+            Build competitive decks with intelligent validation. Track your card portfolio with real-time market pricing. 
+            Organize your collection across custom vaults. Everything you need to elevate your Riftbound TCG experience.
+          </p>
           <div className="welcome-buttons" style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap' }}>
             <Button onClick={signInGoogle} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <LogIn size={18} /> Sign in with Google
@@ -422,6 +533,7 @@ const Home: React.FC = () => {
                 <CollectionCard
                   key={c.id}
                   collection={c}
+                  metadata={vaultMetadata[c.id]}
                   menuOpen={menuOpen}
                   setMenuOpen={setMenuOpen}
                   onRename={() => openRenameCollection(c)}
@@ -436,8 +548,8 @@ const Home: React.FC = () => {
           {/* Decks */}
           <div style={{ marginTop: 48, borderTop: '2px solid rgba(212, 175, 55, 0.2)', paddingTop: 32 }}>
             <div className="collection-actions" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24, gap: 12 }}>
-              <h2 style={{ margin: 0, fontFamily: 'Cinzel, serif', display: 'flex', alignItems: 'center', gap: 8 }}>
-                <Layers size={24} /> Your Decks
+              <h2 style={{ margin: 0, fontFamily: 'Cinzel, serif' }}>
+                Your Decks
               </h2>
               <Button onClick={openCreateDeck} variant="secondary" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                 <Plus size={18} /> New Deck
@@ -460,6 +572,7 @@ const Home: React.FC = () => {
                   <DeckCard
                     key={deck.id}
                     deck={deck}
+                    metadata={deckMetadata[deck.id]}
                     menuOpen={menuOpen}
                     setMenuOpen={setMenuOpen}
                     onRename={() => openRenameDeck(deck)}
