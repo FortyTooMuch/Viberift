@@ -71,7 +71,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (req.method === 'PATCH') {
     // Update deck
     const { id } = req.query;
-    const { name, description, legend_card_id, champion_card_id, is_public } = req.body;
+    const { name, description, legend_card_id, champion_card_id, is_public, image_url } = req.body;
 
     if (!id) return res.status(400).json({ error: 'Deck ID required' });
 
@@ -92,6 +92,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (legend_card_id !== undefined) updates.legend_card_id = legend_card_id;
     if (champion_card_id !== undefined) updates.champion_card_id = champion_card_id;
     if (is_public !== undefined) updates.is_public = is_public;
+    if (image_url !== undefined) updates.image_url = image_url;
 
     const { data: deck, error } = await supabaseServer
       .from('decks')

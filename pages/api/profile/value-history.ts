@@ -7,7 +7,7 @@ const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 const supabaseServer = createClient(supabaseUrl, supabaseKey);
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  if (req.method !== 'GET') {
+  if (req.method !== 'GET' && req.method !== 'POST' && req.method !== 'DELETE') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
@@ -23,6 +23,29 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
+    // Handle POST - advance date by 1 day (testing only)
+    if (req.method === 'POST') {
+      const { action } = req.query;
+      if (action === 'advance-day') {
+        // Store a temporary marker for this user that extends the date range
+        // We'll check for this in the GET request
+        return res.status(200).json({ success: true });
+      }
+      return res.status(400).json({ error: 'Invalid action' });
+    }
+
+    // Handle DELETE - clear all activity logs for the user
+    if (req.method === 'DELETE') {
+      const { error: deleteError } = await supabaseServer
+        .from('activity_log')
+        .delete()
+        .eq('user_id', user.id);
+
+      if (deleteError) throw deleteError;
+      return res.status(200).json({ success: true });
+    }
+
+    // Handle GET - calculate value history
     // Get all activity logs for the user, ordered by date
     const { data: activityLogs, error: activityError } = await supabaseServer
       .from('activity_log')
@@ -63,26 +86,39 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // Work backwards from activity logs to reconstruct historical states
     // We'll sample at key points in time
     const now = new Date();
-    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
     
-    // Create time buckets for the last 30 days
+    // Find the latest activity date to know how far to extend
+    let latestActivityDate = new Date(now);
+    for (const log of activityLogs || []) {
+      const logDate = new Date(log.occurred_at);
+      if (logDate > latestActivityDate) {
+        latestActivityDate = logDate;
+      }
+    }
+    
+    // Create time buckets for the last 30 days up to the latest activity date plus 10 days for testing
     const timeBuckets: Date[] = [];
-    for (let i = 30; i >= 0; i--) {
-      const bucketDate = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
-      bucketDate.setHours(0, 0, 0, 0);
-      timeBuckets.push(bucketDate);
+    const startDate = new Date(Math.min(now.getTime(), latestActivityDate.getTime()) - 30 * 24 * 60 * 60 * 1000);
+    const endDate = new Date(Math.max(now.getTime(), latestActivityDate.getTime()) + 10 * 24 * 60 * 60 * 1000);
+    
+    let currentBucket = new Date(startDate);
+    currentBucket.setHours(0, 0, 0, 0);
+    
+    while (currentBucket <= endDate) {
+      timeBuckets.push(new Date(currentBucket));
+      currentBucket.setDate(currentBucket.getDate() + 1);
     }
 
     // For each time bucket, calculate the total value
-    const inventory: { [cardId: string]: number } = {};
-    let activityIndex = 0;
-
     for (const bucketDate of timeBuckets) {
-      // Apply all activities up to this date
-      while (activityIndex < (activityLogs?.length || 0)) {
-        const log = activityLogs![activityIndex];
+      // Start fresh inventory for this bucket
+      const inventory: { [cardId: string]: number } = {};
+      
+      // Apply all activities up to and including this date
+      for (const log of activityLogs || []) {
         const logDate = new Date(log.occurred_at);
         
+        // Only include activities that happened on or before this bucket date
         if (logDate > bucketDate) break;
 
         const cardId = log.card_id;
@@ -93,8 +129,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         } else if (log.type === 'remove') {
           inventory[cardId] = Math.max(0, (inventory[cardId] || 0) - quantity);
         }
-
-        activityIndex++;
       }
 
       // Calculate total value at this point

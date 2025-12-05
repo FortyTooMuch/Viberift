@@ -139,7 +139,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       // Verify ownership
       const { data: item } = await supabaseServer
         .from('collection_items')
-        .select('collection_id, card_id')
+        .select('collection_id, card_id, quantity')
         .eq('id', itemId)
         .single();
 
@@ -162,12 +162,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
       if (error) throw error;
       
-      // log activity
+      // log activity with the full quantity being removed
       await supabaseServer.from('activity_log').insert([{ 
         user_id: user.id, 
         collection_id: item.collection_id, 
         type: 'remove', 
-        card_id: item.card_id 
+        card_id: item.card_id,
+        quantity: item.quantity
       }]);
 
       return res.json({ success: true });

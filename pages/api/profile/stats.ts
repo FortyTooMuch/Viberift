@@ -30,7 +30,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const totalCards = (items ?? []).reduce((sum: number, item: any) => sum + (item.quantity || 0), 0);
 
     // Get prices for all unique cards
-    const uniqueCardIds = Array.from(new Set((items ?? []).map((i: any) => i.card_id)));
+    // Normalize card ids to strings and drop empties to satisfy type checks
+    const uniqueCardIds: string[] = Array.from(
+      new Set(
+        (items ?? [])
+          .map((i: any) => (i.card_id != null ? String(i.card_id) : null))
+          .filter((id: string | null): id is string => Boolean(id))
+      )
+    );
     
     let totalValue = 0;
     for (const cardId of uniqueCardIds) {

@@ -57,9 +57,15 @@ export default function CollectionView({}) {
       setItems(itemsRes?.items ?? []);
 
       // fetch prices for each card_id (on-demand)
-      const unique = Array.from(new Set((itemsRes?.items ?? []).map((i: any) => i.card_id)));
+      const unique: string[] = Array.from(
+        new Set(
+          (itemsRes?.items ?? [])
+            .map((i: any) => (i.card_id != null ? String(i.card_id) : null))
+            .filter((cid: string | null): cid is string => Boolean(cid))
+        )
+      );
       const entries = await Promise.all(
-        unique.map(async (cid: string) => {
+        unique.map(async cid => {
           const r = await fetch(`/api/prices?cardId=${encodeURIComponent(cid)}`);
           const b = await r.json();
           return [cid, { lowest: Number(b.lowest ?? 0), average: Number(b.average ?? 0) }] as const;
@@ -388,39 +394,62 @@ export default function CollectionView({}) {
 
         {/* Share Modal */}
         <Modal open={addOpen} title="Add Card to Vault" onClose={() => { setAddOpen(false); setSearchQuery(''); setSearchResults([]); }}>
-          <div className="row">
-            <div style={{ flex: 1, position: 'relative' }}>
-              <label>Card Name</label>
-              <input value={searchQuery} onChange={(e) => searchCards(e.target.value)} placeholder="Search for a card..." />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+            <div style={{ position: 'relative' }}>
+              <label style={{ display: 'block', marginBottom: '0.5rem', color: '#d4af37', fontSize: '0.9rem', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Card Name</label>
+              <input 
+                value={searchQuery} 
+                onChange={(e) => searchCards(e.target.value)} 
+                placeholder="Search for a card..." 
+                style={{ width: '100%', padding: '0.75rem', background: 'rgba(0, 0, 0, 0.3)', border: '1px solid rgba(212, 175, 55, 0.3)', borderRadius: '6px', color: '#f0e6d2', boxSizing: 'border-box' }}
+              />
               {searchResults.length > 0 && (
-                <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'rgba(26,20,16,0.98)', border: '2px solid #3d352d', borderRadius: 6, marginTop: 4, maxHeight: 200, overflowY: 'auto', zIndex: 10, boxShadow: '0 8px 24px rgba(0,0,0,0.8)' }}>
+                <div style={{ position: 'absolute', top: 'calc(100% + 6px)', left: 0, right: 0, background: 'rgba(26,20,16,0.98)', border: '1px solid rgba(212, 175, 55, 0.3)', borderRadius: 6, maxHeight: 250, overflowY: 'auto', zIndex: 10, boxShadow: '0 8px 24px rgba(0,0,0,0.8)' }}>
                   {searchResults.map((card) => (
-                    <div key={card.card_id} onClick={() => selectCard(card)} style={{ padding: 10, cursor: 'pointer', borderBottom: '1px solid #3d352d', transition: 'background 0.2s' }}>
-                      <div style={{ color: '#d4af37', fontWeight: 600 }}>{card.name} - {card.card_id}</div>
-                      <div className="muted" style={{ fontSize: 12 }}>{card.set_name} • {card.collector_number}</div>
+                    <div key={card.card_id} onClick={() => selectCard(card)} style={{ padding: '0.75rem 1rem', cursor: 'pointer', borderBottom: '1px solid rgba(212, 175, 55, 0.1)', transition: 'background 0.2s' }} onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(212, 175, 55, 0.1)'} onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
+                      <div style={{ color: '#d4af37', fontWeight: 600, fontSize: '0.95rem' }}>{card.name}</div>
+                      <div className="muted" style={{ fontSize: '0.85rem', color: '#a0a0a0', marginTop: '0.25rem' }}>{card.set_name} • {card.collector_number}</div>
                     </div>
                   ))}
                 </div>
               )}
             </div>
-            <div>
-              <label>Quantity</label>
-              <input type="number" min={1} value={form.quantity} onChange={(e) => setForm((f) => ({ ...f, quantity: Number(e.target.value || 1) }))} />
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+              <div>
+                <label style={{ display: 'block', marginBottom: '0.5rem', color: '#d4af37', fontSize: '0.9rem', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Quantity</label>
+                <input 
+                  type="number" 
+                  min={1} 
+                  value={form.quantity} 
+                  onChange={(e) => setForm((f) => ({ ...f, quantity: Number(e.target.value || 1) }))}
+                  style={{ width: '100%', padding: '0.75rem', background: 'rgba(0, 0, 0, 0.3)', border: '1px solid rgba(212, 175, 55, 0.3)', borderRadius: '6px', color: '#f0e6d2', boxSizing: 'border-box' }}
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', marginBottom: '0.5rem', color: '#d4af37', fontSize: '0.9rem', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Condition</label>
+                <select 
+                  value={form.condition} 
+                  onChange={(e) => setForm((f) => ({ ...f, condition: e.target.value }))}
+                  style={{ width: '100%', padding: '0.75rem', background: 'rgba(0, 0, 0, 0.3)', border: '1px solid rgba(212, 175, 55, 0.3)', borderRadius: '6px', color: '#f0e6d2' }}
+                >
+                  <option value="M">Mint</option>
+                  <option value="NM">Near Mint</option>
+                  <option value="LP">Lightly Played</option>
+                  <option value="MP">Moderately Played</option>
+                  <option value="HP">Heavily Played</option>
+                  <option value="D">Damaged</option>
+                </select>
+              </div>
             </div>
+
             <div>
-              <label>Condition</label>
-              <select value={form.condition} onChange={(e) => setForm((f) => ({ ...f, condition: e.target.value }))}>
-                <option value="M">Mint</option>
-                <option value="NM">Near Mint</option>
-                <option value="LP">Lightly Played</option>
-                <option value="MP">Moderately Played</option>
-                <option value="HP">Heavily Played</option>
-                <option value="D">Damaged</option>
-              </select>
-            </div>
-            <div>
-              <label>Language</label>
-              <select value={form.language} onChange={(e) => setForm((f) => ({ ...f, language: e.target.value }))}>
+              <label style={{ display: 'block', marginBottom: '0.5rem', color: '#d4af37', fontSize: '0.9rem', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Language</label>
+              <select 
+                value={form.language} 
+                onChange={(e) => setForm((f) => ({ ...f, language: e.target.value }))}
+                style={{ width: '100%', padding: '0.75rem', background: 'rgba(0, 0, 0, 0.3)', border: '1px solid rgba(212, 175, 55, 0.3)', borderRadius: '6px', color: '#f0e6d2' }}
+              >
                 <option value="EN">English</option>
                 <option value="FR">French</option>
                 <option value="DE">German</option>
@@ -433,7 +462,11 @@ export default function CollectionView({}) {
               </select>
             </div>
           </div>
-          <div className="row" style={{ justifyContent: 'flex-end' }}>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '2rem' }}>
+            <Button onClick={() => { setAddOpen(false); setSearchQuery(''); setSearchResults([]); }}>
+              Cancel
+            </Button>
             <Button onClick={addItem}>Add Card</Button>
           </div>
         </Modal>
@@ -654,37 +687,35 @@ export default function CollectionView({}) {
               Quantity: {itemToDelete?.quantity} • Condition: {itemToDelete?.condition}
             </p>
           </div>
-          <div className="row" style={{ justifyContent: 'flex-end', gap: '0.5rem' }}>
-            <Button onClick={() => { setDeleteConfirmOpen(false); setItemToDelete(null); }} style={{ background: 'rgba(160, 160, 160, 0.2)', color: '#f0e6d2' }}>
-              Cancel
-            </Button>
-            <Button onClick={deleteItem} style={{ background: 'rgba(220, 53, 69, 0.9)', color: 'white' }}>
-              Delete
-            </Button>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
+            <Button onClick={() => { setDeleteConfirmOpen(false); setItemToDelete(null); }}>Cancel</Button>
+            <Button onClick={deleteItem} style={{ background: 'rgba(220, 53, 69, 0.9)', color: 'white' }}>Delete</Button>
           </div>
         </Modal>
 
         {/* Edit Item Modal */}
         <Modal open={editOpen} title="Edit Card" onClose={() => { setEditOpen(false); setEditingItem(null); }}>
-          <div className="row">
-            <div>
-              <label>Quantity</label>
-              <input type="number" min={1} value={form.quantity} onChange={(e) => setForm((f) => ({ ...f, quantity: Number(e.target.value || 1) }))} />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+              <div>
+                <label style={{ display: 'block', marginBottom: '0.5rem', color: '#d4af37', fontSize: '0.9rem', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Quantity</label>
+                <input type="number" min={1} value={form.quantity} onChange={(e) => setForm((f) => ({ ...f, quantity: Number(e.target.value || 1) }))} style={{ width: '100%', padding: '0.75rem', background: 'rgba(0, 0, 0, 0.3)', border: '1px solid rgba(212, 175, 55, 0.3)', borderRadius: '6px', color: '#f0e6d2', boxSizing: 'border-box' }} />
+              </div>
+              <div>
+                <label style={{ display: 'block', marginBottom: '0.5rem', color: '#d4af37', fontSize: '0.9rem', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Condition</label>
+                <select value={form.condition} onChange={(e) => setForm((f) => ({ ...f, condition: e.target.value }))} style={{ width: '100%', padding: '0.75rem', background: 'rgba(0, 0, 0, 0.3)', border: '1px solid rgba(212, 175, 55, 0.3)', borderRadius: '6px', color: '#f0e6d2', boxSizing: 'border-box' }}>
+                  <option value="M">Mint</option>
+                  <option value="NM">Near Mint</option>
+                  <option value="LP">Lightly Played</option>
+                  <option value="MP">Moderately Played</option>
+                  <option value="HP">Heavily Played</option>
+                  <option value="D">Damaged</option>
+                </select>
+              </div>
             </div>
             <div>
-              <label>Condition</label>
-              <select value={form.condition} onChange={(e) => setForm((f) => ({ ...f, condition: e.target.value }))}>
-                <option value="M">Mint</option>
-                <option value="NM">Near Mint</option>
-                <option value="LP">Lightly Played</option>
-                <option value="MP">Moderately Played</option>
-                <option value="HP">Heavily Played</option>
-                <option value="D">Damaged</option>
-              </select>
-            </div>
-            <div>
-              <label>Language</label>
-              <select value={form.language} onChange={(e) => setForm((f) => ({ ...f, language: e.target.value }))}>
+              <label style={{ display: 'block', marginBottom: '0.5rem', color: '#d4af37', fontSize: '0.9rem', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Language</label>
+              <select value={form.language} onChange={(e) => setForm((f) => ({ ...f, language: e.target.value }))} style={{ width: '100%', padding: '0.75rem', background: 'rgba(0, 0, 0, 0.3)', border: '1px solid rgba(212, 175, 55, 0.3)', borderRadius: '6px', color: '#f0e6d2', boxSizing: 'border-box' }}>
                 <option value="EN">English</option>
                 <option value="FR">French</option>
                 <option value="DE">German</option>
@@ -697,33 +728,35 @@ export default function CollectionView({}) {
               </select>
             </div>
           </div>
-          <div className="row" style={{ justifyContent: 'flex-end', marginTop: 16 }}>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '2rem' }}>
+            <Button onClick={() => { setEditOpen(false); setEditingItem(null); }}>Cancel</Button>
             <Button onClick={updateItem}>Save Changes</Button>
           </div>
         </Modal>
 
         {/* Share Link Modal */}
         <Modal open={shareOpen} title="Create Share Link" onClose={() => setShareOpen(false)}>
-          <div className="row">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
             <div>
-              <label>Link Expires</label>
-              <select value={expiry} onChange={(e) => setExpiry(e.target.value)}>
+              <label style={{ display: 'block', marginBottom: '0.5rem', color: '#d4af37', fontSize: '0.9rem', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Link Expires</label>
+              <select value={expiry} onChange={(e) => setExpiry(e.target.value)} style={{ width: '100%', padding: '0.75rem', background: 'rgba(0, 0, 0, 0.3)', border: '1px solid rgba(212, 175, 55, 0.3)', borderRadius: '6px', color: '#f0e6d2', boxSizing: 'border-box' }}>
                 <option value="1d">1 day</option>
                 <option value="3d">3 days</option>
                 <option value="1m">1 month</option>
                 <option value="none">Never</option>
               </select>
             </div>
+            {shareUrl && (
+              <div>
+                <label style={{ display: 'block', marginBottom: '0.5rem', color: '#d4af37', fontSize: '0.9rem', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Share Link</label>
+                <input type="text" readOnly value={window.location.origin + shareUrl} style={{ width: '100%', padding: '0.75rem', background: 'rgba(0, 0, 0, 0.3)', border: '1px solid rgba(212, 175, 55, 0.3)', borderRadius: '6px', color: '#f0e6d2', boxSizing: 'border-box' }} />
+              </div>
+            )}
           </div>
-          <div className="row" style={{ justifyContent: 'flex-end' }}>
-            <Button onClick={createShare}>Create Link</Button>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '2rem' }}>
+            <Button onClick={shareUrl ? () => setShareOpen(false) : createShare}>{shareUrl ? 'Close' : 'Create Link'}</Button>
+            {shareUrl && <Button onClick={() => navigator.clipboard.writeText(window.location.origin + shareUrl)}>Copy Link</Button>}
           </div>
-          {shareUrl && (
-            <div style={{ marginTop: 16 }}>
-              <input type="text" readOnly value={window.location.origin + shareUrl} style={{ width: '100%', padding: 8 }} />
-              <Button onClick={() => navigator.clipboard.writeText(window.location.origin + shareUrl)} style={{ marginTop: 8 }}>Copy Link</Button>
-            </div>
-          )}
         </Modal>
       </div>
 

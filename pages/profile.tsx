@@ -22,11 +22,6 @@ type Activity = {
   occurredAt: string;
 };
 
-type ValueHistoryPoint = {
-  date: string;
-  value: number;
-};
-
 export default function ProfilePage() {
   const [session, setSession] = useState<any>(null);
   const [profile, setProfile] = useState<{ username?: string; avatar_url?: string }>({});
@@ -37,7 +32,6 @@ export default function ProfilePage() {
   const [activityPage, setActivityPage] = useState(1);
   const [hasMoreActivity, setHasMoreActivity] = useState(true);
   const [loadingMoreActivity, setLoadingMoreActivity] = useState(false);
-  const [valueHistory, setValueHistory] = useState<ValueHistoryPoint[]>([]);
   const [uploading, setUploading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [editModalOpen, setEditModalOpen] = useState(false);
@@ -59,18 +53,16 @@ export default function ProfilePage() {
       
       try {
         // Load all data in parallel for better performance
-        const [profileRes, statsRes, activityRes, historyRes] = await Promise.all([
+        const [profileRes, statsRes, activityRes] = await Promise.all([
           fetch('/api/profile', { headers: { Authorization: `Bearer ${session.access_token}` } }),
           fetch('/api/profile/stats', { headers: { Authorization: `Bearer ${session.access_token}` } }),
-          fetch(`/api/profile/activity?limit=${ACTIVITY_PER_PAGE}&offset=0`, { headers: { Authorization: `Bearer ${session.access_token}` } }),
-          fetch('/api/profile/value-history', { headers: { Authorization: `Bearer ${session.access_token}` } })
+          fetch(`/api/profile/activity?limit=${ACTIVITY_PER_PAGE}&offset=0`, { headers: { Authorization: `Bearer ${session.access_token}` } })
         ]);
 
-        const [profileData, statsData, activityData, historyData] = await Promise.all([
+        const [profileData, statsData, activityData] = await Promise.all([
           profileRes.json(),
           statsRes.json(),
-          activityRes.json(),
-          historyRes.json()
+          activityRes.json()
         ]);
 
         setProfile(profileData);
@@ -79,7 +71,6 @@ export default function ProfilePage() {
         setStats(statsData);
         setActivity(activityData.activity ?? []);
         setHasMoreActivity((activityData.activity ?? []).length === ACTIVITY_PER_PAGE);
-        setValueHistory(historyData.history ?? []);
       } catch (err) {
         console.error('Load error:', err);
       } finally {
@@ -307,14 +298,6 @@ export default function ProfilePage() {
               </div>
             </div>
 
-            {/* Value History Chart */}
-            {valueHistory.length > 0 && (
-              <div className="card" style={{ padding: 16 }}>
-                <h3 style={{ margin: '0 0 12px 0', fontSize: 16 }}>Collection Value Over Time</h3>
-                <ValueChart data={valueHistory} />
-              </div>
-            )}
-
             {/* Activity Feed */}
             <div className="card" style={{ padding: 16 }}>
               <h3 style={{ margin: '0 0 12px 0', fontSize: 16 }}>Recent Activity</h3>
@@ -442,122 +425,3 @@ export default function ProfilePage() {
     </Layout>
   );
 }
-
-const ValueChart = React.memo(({ data }: { data: ValueHistoryPoint[] }) => {
-  if (data.length === 0) return null;
-
-  const { maxValue, minValue, valueRange, firstValue, lastValue, percentChange, isPositive } = useMemo(() => {
-    const max = Math.max(...data.map(d => d.value));
-    const min = Math.min(...data.map(d => d.value));
-    const range = max - min || 1;
-    const first = data[0].value;
-    const last = data[data.length - 1].value;
-    const change = first > 0 ? ((last - first) / first) * 100 : 0;
-    const positive = change >= 0;
-    
-    return {
-      maxValue: max,
-      minValue: min,
-      valueRange: range,
-      firstValue: first,
-      lastValue: last,
-      percentChange: change,
-      isPositive: positive
-    };
-  }, [data]);
-
-  return (
-    <div style={{ display: 'grid', gap: 12 }}>
-      {/* Summary Stats */}
-      <div style={{ display: 'flex', gap: 12, justifyContent: 'space-between', padding: '8px 0' }}>
-        <div>
-          <div className="muted" style={{ fontSize: 12 }}>30 Days Ago</div>
-          <div style={{ fontSize: 18, fontWeight: 600, color: '#d4af37' }}>€{firstValue.toFixed(2)}</div>
-        </div>
-        <div style={{ textAlign: 'center' }}>
-          <div className="muted" style={{ fontSize: 12 }}>Change</div>
-          <div style={{ 
-            fontSize: 18, 
-            fontWeight: 700, 
-            color: isPositive ? '#4ade80' : '#f87171' 
-          }}>
-            {isPositive ? '▲' : '▼'} {Math.abs(percentChange).toFixed(1)}%
-          </div>
-        </div>
-        <div style={{ textAlign: 'right' }}>
-          <div className="muted" style={{ fontSize: 12 }}>Current</div>
-          <div style={{ fontSize: 18, fontWeight: 600, color: '#d4af37' }}>€{lastValue.toFixed(2)}</div>
-        </div>
-      </div>
-
-      {/* Chart */}
-      <div style={{ 
-        position: 'relative',
-        height: 200,
-        background: 'rgba(42,37,32,0.3)',
-        borderRadius: 6,
-        padding: '12px 8px',
-        overflow: 'hidden'
-      }}>
-        {/* Grid lines */}
-        <div style={{ position: 'absolute', inset: '12px 8px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-          {[0, 1, 2, 3, 4].map(i => (
-            <div key={i} style={{ 
-              width: '100%', 
-              height: 1, 
-              background: 'rgba(212,175,55,0.1)'
-            }} />
-          ))}
-        </div>
-
-        {/* Line Chart */}
-        <svg 
-          width="100%" 
-          height="100%" 
-          style={{ position: 'relative', zIndex: 1 }}
-          preserveAspectRatio="none"
-          viewBox={`0 0 ${data.length - 1} 100`}
-        >
-          <defs>
-            <linearGradient id="chartGradient" x1="0%" y1="0%" x2="0%" y2="100%">
-              <stop offset="0%" stopColor={isPositive ? '#4ade80' : '#f87171'} stopOpacity="0.3" />
-              <stop offset="100%" stopColor={isPositive ? '#4ade80' : '#f87171'} stopOpacity="0.05" />
-            </linearGradient>
-          </defs>
-          
-          {/* Area under the line */}
-          <path
-            d={`
-              M 0,${100 - ((data[0].value - minValue) / valueRange) * 100}
-              ${data.slice(1).map((point, i) => 
-                `L ${i + 1},${100 - ((point.value - minValue) / valueRange) * 100}`
-              ).join(' ')}
-              L ${data.length - 1},100
-              L 0,100
-              Z
-            `}
-            fill="url(#chartGradient)"
-          />
-          
-          {/* Line */}
-          <polyline
-            points={data.map((point, i) => 
-              `${i},${100 - ((point.value - minValue) / valueRange) * 100}`
-            ).join(' ')}
-            fill="none"
-            stroke={isPositive ? '#4ade80' : '#f87171'}
-            strokeWidth="0.5"
-            vectorEffect="non-scaling-stroke"
-          />
-        </svg>
-      </div>
-
-      {/* X-axis labels */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#8a7f6f' }}>
-        <span>{new Date(data[0].date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
-        <span>{new Date(data[Math.floor(data.length / 2)].date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
-        <span>{new Date(data[data.length - 1].date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
-      </div>
-    </div>
-  );
-});
