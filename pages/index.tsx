@@ -107,8 +107,8 @@ const Home: React.FC = () => {
           const items = itemsData.items || [];
 
           // Fetch prices for all cards in this vault
-          const cardIds = [...new Set(items.map((i: any) => i.card_id))];
-          const pricePromises = cardIds.map(async (cardId: string) => {
+          const cardIds: string[] = [...new Set(items.map((i: any) => i.card_id))];
+          const pricePromises = cardIds.map(async (cardId) => {
             try {
               const priceRes = await fetch(`/api/prices?cardId=${encodeURIComponent(cardId)}`);
               const priceData = await priceRes.json();
