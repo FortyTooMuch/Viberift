@@ -1,0 +1,236 @@
+@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700;900&family=Cormorant+Garamond:wght@400;600;700&display=swap');
+
+:root{
+  --bg: #1a1410;
+  --card: #0f0c09;
+  --accent: #d4af37;
+  --accent-hover: #f4cf67;
+  --stone: #2a2520;
+  --border: #3d352d;
+  --text: #f5f0e8;
+  --text-muted: #b8a895;
+  color-scheme: dark;
+}
+html,body,#__next{height:100%;}
+body{
+  margin:0;
+  background:
+    linear-gradient(135deg, rgba(26,20,16,0.95) 0%, rgba(15,12,9,0.98) 100%),
+    url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><rect fill="%231a1410" width="100" height="100"/><circle fill="%232a2520" cx="50" cy="50" r="1" opacity="0.3"/></svg>');
+  background-attachment: fixed;
+  color: var(--text);
+  font-family: 'Cormorant Garamond', Georgia, serif;
+  font-size: 17px;
+  line-height: 1.7;
+}
+button{
+  background: linear-gradient(135deg, var(--accent) 0%, #b8941e 100%);
+  border: 1px solid rgba(212,175,55,0.4);
+  padding: 11px 18px;
+  border-radius: 4px;
+  color: #1a1410;
+  cursor: pointer;
+  font-weight: 700;
+  font-family: 'Cinzel', serif;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  font-size: 13px;
+  box-shadow: 0 4px 12px rgba(212,175,55,.4), inset 0 1px 0 rgba(255,255,255,0.2);
+  transition: all 0.2s ease;
+}
+button:hover{
+  background: linear-gradient(135deg, var(--accent-hover) 0%, var(--accent) 100%);
+  box-shadow: 0 6px 16px rgba(212,175,55,.6), inset 0 1px 0 rgba(255,255,255,0.3);
+  transform: translateY(-1px);
+}
+button:active{transform: translateY(0); box-shadow: 0 2px 8px rgba(212,175,55,.5);}
+input,select{
+  background: rgba(42,37,32,0.6);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  padding: 10px 14px;
+  font-family: 'Cormorant Garamond', Georgia, serif;
+  font-size: 16px;
+  transition: border-color 0.2s ease;
+}
+input:focus,select:focus{outline:none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(212,175,55,0.15);}
+a{color: var(--accent); text-decoration: none; transition: color 0.2s ease;}
+a:hover{color: var(--accent-hover);}
+
+@media (max-width:640px){
+  body {
+    font-size: 15px;
+  }
+  h1{font-size:20px}
+  h2{font-size:18px}
+  h3{font-size:16px}
+  main{padding:12px}
+  button {
+    padding: 9px 14px;
+    font-size: 12px;
+  }
+  .card{
+    padding: 12px;
+  }
+  input, select {
+    padding: 8px 12px;
+    font-size: 15px;
+  }
+  .row {
+    gap: 8px;
+  }
+}
+
+h1,h2,h3,h4,h5,h6{font-family: 'Cinzel', serif; font-weight: 700; letter-spacing: 1px; color: var(--accent);}
+h1{font-size: 28px; text-shadow: 0 2px 8px rgba(212,175,55,0.3);}
+h2{font-size: 22px;}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 0.6; }
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.card{
+  background: linear-gradient(145deg, rgba(42,37,32,0.4) 0%, rgba(15,12,9,0.6) 100%);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 16px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.6), inset 0 1px 0 rgba(212,175,55,0.1);
+  backdrop-filter: blur(8px);
+}
+.row{display:flex; gap:12px; align-items:center; flex-wrap:wrap}
+.muted{color: var(--text-muted); font-style: italic;}
+
+/* Activity item hover effects - using CSS for better scroll performance */
+.activity-item {
+  transition: transform 0.2s ease, background 0.2s ease;
+}
+.activity-item:hover {
+  background: rgba(42,37,32,0.5) !important;
+  transform: translateX(4px);
+}
+
+/* Mobile responsive styles */
+@media (max-width: 768px) {
+  /* Profile stats grid - stack on mobile */
+  .stats-grid {
+    grid-template-columns: 1fr !important;
+  }
+  
+  /* Profile header - stack avatar and info */
+  .profile-header {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 12px !important;
+  }
+  
+  .profile-header > div:last-child {
+    width: 100%;
+  }
+  
+  /* Hide desktop action buttons on mobile */
+  .profile-header button,
+  .collection-actions > button {
+    display: none !important;
+  }
+  
+  /* Card grid - single column on mobile */
+  .card-grid {
+    grid-template-columns: 1fr !important;
+    gap: 12px !important;
+  }
+  
+  /* Activity items - smaller on mobile */
+  .activity-item {
+    padding: 8px !important;
+    gap: 8px !important;
+  }
+  
+  /* Collection header actions */
+  .collection-actions {
+    flex-direction: column !important;
+    align-items: stretch !important;
+  }
+  
+  .collection-actions h2 {
+    text-align: center;
+  }
+  
+  /* Welcome screen */
+  .welcome-buttons {
+    flex-direction: column !important;
+    width: 100%;
+  }
+  
+  .welcome-buttons button {
+    width: 100%;
+  }
+
+  /* Hide desktop-only buttons on mobile */
+  .desktop-only-btn {
+    display: none !important;
+  }
+  
+  /* Bottom action bar for mobile - thumb-friendly */
+  .mobile-bottom-bar {
+    display: flex !important;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: linear-gradient(180deg, rgba(26,20,16,0.95) 0%, rgba(15,12,9,0.98) 100%);
+    border-top: 2px solid #3d352d;
+    padding: 12px 16px;
+    gap: 8px;
+    z-index: 50;
+    box-shadow: 0 -4px 16px rgba(0,0,0,0.6);
+    backdrop-filter: blur(8px);
+  }
+  
+  .mobile-bottom-bar button {
+    flex: 1;
+    margin: 0;
+  }
+  
+  /* Add padding to content so it doesn't hide behind bottom bar */
+  body {
+    padding-bottom: 70px;
+  }
+}
+
+/* Hide mobile bottom bar on desktop */
+.mobile-bottom-bar {
+  display: none;
+}
+
+@media (max-width: 480px) {
+  /* Very small screens - even more compact */
+  body {
+    font-size: 14px;
+  }
+  
+  h1 { font-size: 18px; }
+  h2 { font-size: 16px; }
+  h3 { font-size: 14px; }
+  
+  .card {
+    padding: 10px;
+    border-radius: 4px;
+  }
+  
+  button {
+    padding: 8px 12px;
+    font-size: 11px;
+  }
+}
