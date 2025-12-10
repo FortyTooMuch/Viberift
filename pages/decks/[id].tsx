@@ -52,6 +52,46 @@ type ValidationResult = {
 
 type Zone = 'legend' | 'champion' | 'battlefield' | 'rune' | 'main' | 'side';
 
+const ImageWithSkeleton: React.FC<{ src?: string; alt: string; height?: number; borderColor?: string }> = ({ src, alt, height = 220, borderColor = 'rgba(42,35,28,0.95)' }) => {
+  const [loaded, setLoaded] = useState(false);
+
+  if (!src) {
+    return (
+      <div style={{ height, width: '100%', background: 'linear-gradient(135deg, rgba(42,35,28,0.9), rgba(30,25,20,0.9))', border: `3px solid ${borderColor}` }} />
+    );
+  }
+
+  return (
+    <div style={{ position: 'relative', width: '100%', background: 'rgba(15,12,9,0.95)' }}>
+      {!loaded && (
+        <div
+          style={{
+            height,
+            width: '100%',
+            background: 'linear-gradient(90deg, rgba(40,35,30,0.5), rgba(55,48,41,0.8), rgba(40,35,30,0.5))',
+            backgroundSize: '200% 100%',
+            animation: 'card-skeleton 1.2s ease-in-out infinite'
+          }}
+        />
+      )}
+      <img
+        src={`/api/proxy-image?url=${encodeURIComponent(src)}`}
+        alt={alt}
+        onLoad={() => setLoaded(true)}
+        onError={() => setLoaded(true)}
+        style={{
+          width: '100%',
+          height: 'auto',
+          display: 'block',
+          opacity: loaded ? 1 : 0,
+          transition: 'opacity 0.25s ease'
+        }}
+      />
+      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, border: `3px solid ${borderColor}`, pointerEvents: 'none' }} />
+    </div>
+  );
+};
+
 const renderDescription = (text?: string) => {
   if (!text) return 'No description available.';
 
@@ -131,6 +171,11 @@ export default function DeckBuilder() {
   const [hoverPreviewCard, setHoverPreviewCard] = useState<Card | null>(null);
   const [hoverPreviewPosition, setHoverPreviewPosition] = useState<{ x: number; y: number } | null>(null);
   const hoverTimerRef = React.useRef<NodeJS.Timeout | null>(null);
+  const [shareModalOpen, setShareModalOpen] = useState(false);
+  const [shareLink, setShareLink] = useState<string | null>(null);
+  const [generatingLink, setGeneratingLink] = useState(false);
+  const [leftSidebarMinimized, setLeftSidebarMinimized] = useState(false);
+  const [rightSidebarMinimized, setRightSidebarMinimized] = useState(false);
 
   const showNotification = (message: string) => {
     setNotification(message);
@@ -745,6 +790,68 @@ export default function DeckBuilder() {
     }
   };
 
+  const generateShareLink = async () => {
+    if (!session?.access_token || !id) return;
+    setGeneratingLink(true);
+    
+    try {
+      const res = await fetch(`/api/decks/${id}/share`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${session.access_token}` }
+      });
+      
+      if (res.ok) {
+        const data = await res.json();
+        const link = `${window.location.origin}/shared/${data.token}`;
+        setShareLink(link);
+        showNotification('Share link generated!');
+      } else {
+        showNotification('Failed to generate share link');
+      }
+    } catch (error) {
+      console.error('Generate share link error:', error);
+      showNotification('Error generating share link');
+    } finally {
+      setGeneratingLink(false);
+    }
+  };
+
+  const exportToCSV = () => {
+    const rows = [['Zone', 'Card Name', 'Quantity', 'Category']];
+    
+    deckCards.forEach(dc => {
+      const card = dc.card || getCardById(dc.card_id);
+      if (card) {
+        rows.push([
+          dc.zone,
+          card.name,
+          dc.quantity.toString(),
+          card.category || ''
+        ]);
+      }
+    });
+
+    const csvContent = rows.map(row => 
+      row.map(cell => `"${cell.replace(/"/g, '""')}"`).join(',')
+    ).join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${deck?.name || 'deck'}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+    showNotification('CSV exported!');
+  };
+
+  const copyShareLink = () => {
+    if (shareLink) {
+      navigator.clipboard.writeText(shareLink);
+      showNotification('Link copied to clipboard!');
+    }
+  };
+
   if (loading) {
     return (
       <Layout>
@@ -909,6 +1016,189 @@ export default function DeckBuilder() {
           </div>
         </div>
       )}
+
+      {/* Share Modal */}
+      {shareModalOpen && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0,0,0,0.85)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 10000,
+            padding: '24px'
+          }}
+          onClick={() => setShareModalOpen(false)}
+        >
+          <div
+            style={{
+              background: 'linear-gradient(135deg, rgba(15,12,9,0.98), rgba(26,20,16,0.98))',
+              border: '2px solid rgba(212,175,55,0.5)',
+              borderRadius: '12px',
+              padding: '24px',
+              maxWidth: '500px',
+              width: '100%'
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 style={{ margin: '0 0 20px 0', fontSize: '1.5rem', fontFamily: 'Cinzel, serif', color: '#d4af37' }}>
+              Share Deck
+            </h2>
+
+            {/* Export CSV */}
+            <div style={{ marginBottom: '20px', padding: '16px', background: 'rgba(0,0,0,0.3)', borderRadius: '8px', border: '1px solid rgba(212,175,55,0.3)' }}>
+              <h3 style={{ margin: '0 0 8px 0', fontSize: '1rem', color: '#f0e6d2' }}>Export as CSV</h3>
+              <p style={{ margin: '0 0 12px 0', fontSize: '0.9rem', color: '#a0a0a0' }}>
+                Download your deck list as a CSV file
+              </p>
+              <button
+                onClick={() => {
+                  exportToCSV();
+                  setShareModalOpen(false);
+                }}
+                style={{
+                  width: '100%',
+                  padding: '10px',
+                  borderRadius: '6px',
+                  border: '1px solid rgba(74,222,128,0.4)',
+                  background: 'transparent',
+                  color: '#4ade80',
+                  cursor: 'pointer',
+                  fontWeight: '500',
+                  fontSize: '14px',
+                  transition: 'all 0.2s ease',
+                  boxShadow: 'none'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = 'rgba(74,222,128,0.1)';
+                  e.currentTarget.style.borderColor = 'rgba(74,222,128,0.6)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = 'transparent';
+                  e.currentTarget.style.borderColor = 'rgba(74,222,128,0.4)';
+                }}
+              >
+                Download CSV
+              </button>
+            </div>
+
+            {/* Generate Public Link */}
+            <div style={{ marginBottom: '20px', padding: '16px', background: 'rgba(0,0,0,0.3)', borderRadius: '8px', border: '1px solid rgba(212,175,55,0.3)' }}>
+              <h3 style={{ margin: '0 0 8px 0', fontSize: '1rem', color: '#f0e6d2' }}>Public Link</h3>
+              <p style={{ margin: '0 0 12px 0', fontSize: '0.9rem', color: '#a0a0a0' }}>
+                Create a shareable link that anyone can view
+              </p>
+              {shareLink ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <div style={{ 
+                    padding: '10px', 
+                    background: 'rgba(26,20,16,0.6)', 
+                    border: '1px solid #3d352d', 
+                    borderRadius: '4px',
+                    color: '#f0e6d2',
+                    fontSize: '13px',
+                    wordBreak: 'break-all'
+                  }}>
+                    {shareLink}
+                  </div>
+                  <button
+                    onClick={copyShareLink}
+                    style={{
+                      width: '100%',
+                      padding: '10px',
+                      borderRadius: '6px',
+                      border: '1px solid rgba(96,165,250,0.4)',
+                      background: 'transparent',
+                      color: '#60a5fa',
+                      cursor: 'pointer',
+                      fontWeight: '500',
+                      fontSize: '14px',
+                      transition: 'all 0.2s ease',
+                      boxShadow: 'none'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = 'rgba(96,165,250,0.1)';
+                      e.currentTarget.style.borderColor = 'rgba(96,165,250,0.6)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = 'transparent';
+                      e.currentTarget.style.borderColor = 'rgba(96,165,250,0.4)';
+                    }}
+                  >
+                    Copy Link
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={generateShareLink}
+                  disabled={generatingLink}
+                  style={{
+                    width: '100%',
+                    padding: '10px',
+                    borderRadius: '6px',
+                    border: generatingLink ? '1px solid rgba(153,153,153,0.4)' : '1px solid rgba(192,132,252,0.4)',
+                    background: 'transparent',
+                    color: generatingLink ? '#999999' : '#c084fc',
+                    cursor: generatingLink ? 'not-allowed' : 'pointer',
+                    fontWeight: '500',
+                    fontSize: '14px',
+                    transition: 'all 0.2s ease',
+                    opacity: generatingLink ? 0.5 : 1,
+                    boxShadow: 'none'
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!generatingLink) {
+                      e.currentTarget.style.background = 'rgba(192,132,252,0.1)';
+                      e.currentTarget.style.borderColor = 'rgba(192,132,252,0.6)';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!generatingLink) {
+                      e.currentTarget.style.background = 'transparent';
+                      e.currentTarget.style.borderColor = 'rgba(192,132,252,0.4)';
+                    }
+                  }}
+                >
+                  {generatingLink ? 'Generating...' : 'Generate Link'}
+                </button>
+              )}
+            </div>
+
+            {/* Close Button */}
+            <button
+              onClick={() => setShareModalOpen(false)}
+              style={{
+                width: '100%',
+                padding: '10px',
+                borderRadius: '6px',
+                border: '1px solid rgba(239,68,68,0.4)',
+                background: 'transparent',
+                color: '#ef4444',
+                cursor: 'pointer',
+                fontWeight: '500',
+                fontSize: '14px',
+                transition: 'all 0.2s ease',
+                boxShadow: 'none'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = 'rgba(239,68,68,0.1)';
+                e.currentTarget.style.borderColor = 'rgba(239,68,68,0.6)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'transparent';
+                e.currentTarget.style.borderColor = 'rgba(239,68,68,0.4)';
+              }}
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
       
       <div className="deck-builder" style={{ 
         display: 'flex', 
@@ -921,13 +1211,69 @@ export default function DeckBuilder() {
       }}>
         {/* Left Sidebar - Deck Info & Validation */}
         <div style={{ 
-          width: '220px', 
-          background: 'rgba(26,20,16,0.95)', 
-          borderRight: '2px solid rgba(212,175,55,0.3)',
-          overflowY: 'auto',
-          padding: '1rem'
+          width: leftSidebarMinimized ? '32px' : '220px', 
+          background: leftSidebarMinimized ? 'transparent' : 'rgba(26,20,16,0.95)', 
+          borderRight: leftSidebarMinimized ? 'none' : '2px solid rgba(212,175,55,0.3)',
+          overflowY: leftSidebarMinimized ? 'visible' : 'auto',
+          overflowX: 'visible',
+          padding: leftSidebarMinimized ? '0' : '1rem',
+          transition: 'all 0.3s ease',
+          position: 'relative',
+          flexShrink: 0
         }}>
-          <div style={{ marginBottom: '1.5rem' }}>
+          {/* Toggle Button */}
+          <button
+            onClick={() => setLeftSidebarMinimized(!leftSidebarMinimized)}
+            style={{
+              position: 'absolute',
+              left: '0',
+              top: '12px',
+              zIndex: 999,
+              width: leftSidebarMinimized ? '32px' : '100%',
+              height: leftSidebarMinimized ? '48px' : 'auto',
+              padding: leftSidebarMinimized ? '0' : '8px',
+              background: leftSidebarMinimized ? 'rgba(15,12,9,0.7)' : 'transparent',
+              border: 'none',
+              borderRight: leftSidebarMinimized ? '2px solid rgba(212,175,55,0.4)' : 'none',
+              borderRadius: '0',
+              color: leftSidebarMinimized ? '#d4af37' : '#7a6f5d',
+              cursor: 'pointer',
+              marginBottom: leftSidebarMinimized ? 0 : '1rem',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: leftSidebarMinimized ? '16px' : '11px',
+              transition: 'all 0.2s',
+              boxShadow: leftSidebarMinimized ? '2px 0 8px rgba(0,0,0,0.3)' : 'none',
+              backdropFilter: leftSidebarMinimized ? 'blur(4px)' : 'none',
+              fontWeight: leftSidebarMinimized ? 'normal' : '500',
+              textTransform: leftSidebarMinimized ? 'none' : 'uppercase',
+              letterSpacing: leftSidebarMinimized ? '0' : '0.5px'
+            }}
+            onMouseEnter={(e) => {
+              if (leftSidebarMinimized) {
+                e.currentTarget.style.background = 'rgba(15,12,9,0.9)';
+                e.currentTarget.style.borderRightColor = 'rgba(212,175,55,0.6)';
+              } else {
+                e.currentTarget.style.color = '#d4af37';
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (leftSidebarMinimized) {
+                e.currentTarget.style.background = 'rgba(15,12,9,0.7)';
+                e.currentTarget.style.borderRightColor = 'rgba(212,175,55,0.4)';
+              } else {
+                e.currentTarget.style.color = '#7a6f5d';
+              }
+            }}
+            title={leftSidebarMinimized ? 'Show deck info' : 'Hide deck info'}
+          >
+            {leftSidebarMinimized ? '›' : 'hide ‹'}
+          </button>
+          
+          {!leftSidebarMinimized && (
+            <>
+          <div style={{ marginBottom: '1.5rem', marginTop: '60px' }}>
             <h2 style={{ margin: '0 0 8px 0', fontSize: '1.3rem', fontFamily: 'Cinzel, serif', color: '#d4af37' }}>
               {deck?.name || 'Deck'}
             </h2>
@@ -936,6 +1282,37 @@ export default function DeckBuilder() {
                 {deck.description}
               </p>
             )}
+            <button
+              onClick={() => setShareModalOpen(true)}
+              style={{
+                marginTop: '12px',
+                width: '100%',
+                padding: '8px 12px',
+                background: 'transparent',
+                border: '1px solid rgba(212,175,55,0.3)',
+                borderRadius: '4px',
+                color: '#b8a895',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '6px',
+                fontSize: '13px',
+                fontWeight: '500',
+                transition: 'all 0.2s'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = 'rgba(212,175,55,0.05)';
+                e.currentTarget.style.borderColor = 'rgba(212,175,55,0.5)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'transparent';
+                e.currentTarget.style.borderColor = 'rgba(212,175,55,0.3)';
+              }}
+            >
+              <Share2 size={14} />
+              Share Deck
+            </button>
           </div>
 
           {/* Validation Checklist */}
@@ -1043,12 +1420,14 @@ export default function DeckBuilder() {
               }}
             />
           </div>
+            </>
+          )}
         </div>
 
         {/* Middle - Card Browser */}
         <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', background: 'rgba(15,12,9,0.98)' }}>
           {/* Search and Filters */}
-          <div style={{ padding: '0.75rem 1rem', borderBottom: '2px solid rgba(212,175,55,0.3)', position: 'sticky', top: 0, background: 'rgba(15,12,9,0.98)', zIndex: 10 }}>
+          <div style={{ padding: '0.75rem 1rem', borderBottom: '2px solid rgba(212,175,55,0.3)', position: 'sticky', top: 0, background: 'rgba(15,12,9,0.98)', zIndex: 1001 }}>
             <div style={{ display: 'flex', gap: '8px', marginBottom: '12px', alignItems: 'center' }}>
               <div style={{ flex: 1, position: 'relative', display: 'flex', alignItems: 'center' }}>
                 <input
@@ -1257,38 +1636,13 @@ export default function DeckBuilder() {
                       e.currentTarget.style.borderColor = 'rgba(212,175,55,0.3)';
                     }}
                   >
-                    <div style={{ 
-                      position: 'relative',
-                      width: '100%',
-                      background: 'rgba(15,12,9,0.95)'
-                    }}>
-                      {displayCard.image_url ? (
-                        <>
-                          <img 
-                            src={`/api/proxy-image?url=${encodeURIComponent(displayCard.image_url)}`}
-                            alt={displayCard.name}
-                            style={{
-                              width: '100%',
-                              height: 'auto',
-                              display: 'block'
-                            }}
-                          />
-                          <div style={{
-                            position: 'absolute',
-                            top: 0,
-                            left: 0,
-                            right: 0,
-                            bottom: 0,
-                            border: '3px solid rgba(42,35,28,0.95)',
-                            pointerEvents: 'none'
-                          }} />
-                        </>
-                      ) : (
-                        <div style={{
-                          height: '200px',
-                          background: 'linear-gradient(135deg, rgba(42,35,28,0.9), rgba(30,25,20,0.9))'
-                        }} />
-                      )}
+                    <div style={{ position: 'relative', width: '100%' }}>
+                      <ImageWithSkeleton
+                        src={displayCard.image_url}
+                        alt={displayCard.name}
+                        height={240}
+                        borderColor="rgba(42,35,28,0.95)"
+                      />
                       {quantity > 0 && (
                         <div style={{
                           position: 'absolute',
@@ -1413,13 +1767,69 @@ export default function DeckBuilder() {
 
         {/* Right Sidebar - Collapsible Subdecks */}
         <div style={{ 
-          width: '260px', 
-          background: 'rgba(26,20,16,0.95)', 
-          borderLeft: '2px solid rgba(212,175,55,0.3)',
-          overflowY: 'auto',
-          padding: '1rem'
+          width: rightSidebarMinimized ? '32px' : '260px', 
+          background: rightSidebarMinimized ? 'transparent' : 'rgba(26,20,16,0.95)', 
+          borderLeft: rightSidebarMinimized ? 'none' : '2px solid rgba(212,175,55,0.3)',
+          overflowY: rightSidebarMinimized ? 'visible' : 'auto',
+          overflowX: 'visible',
+          padding: rightSidebarMinimized ? '0' : '1rem',
+          transition: 'all 0.3s ease',
+          position: 'relative',
+          flexShrink: 0
         }}>
-          <h3 style={{ margin: '0 0 16px 0', fontSize: '1.1rem', fontFamily: 'Cinzel, serif', color: '#d4af37' }}>
+          {/* Toggle Button */}
+          <button
+            onClick={() => setRightSidebarMinimized(!rightSidebarMinimized)}
+            style={{
+              position: 'absolute',
+              right: '0',
+              top: '12px',
+              zIndex: 999,
+              width: rightSidebarMinimized ? '32px' : '100%',
+              height: rightSidebarMinimized ? '48px' : 'auto',
+              padding: rightSidebarMinimized ? '0' : '8px',
+              background: rightSidebarMinimized ? 'rgba(15,12,9,0.7)' : 'transparent',
+              border: 'none',
+              borderLeft: rightSidebarMinimized ? '2px solid rgba(212,175,55,0.4)' : 'none',
+              borderRadius: '0',
+              color: rightSidebarMinimized ? '#d4af37' : '#7a6f5d',
+              cursor: 'pointer',
+              marginBottom: rightSidebarMinimized ? 0 : '1rem',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: rightSidebarMinimized ? '16px' : '11px',
+              transition: 'all 0.2s',
+              boxShadow: rightSidebarMinimized ? '-2px 0 8px rgba(0,0,0,0.3)' : 'none',
+              backdropFilter: rightSidebarMinimized ? 'blur(4px)' : 'none',
+              fontWeight: rightSidebarMinimized ? 'normal' : '500',
+              textTransform: rightSidebarMinimized ? 'none' : 'uppercase',
+              letterSpacing: rightSidebarMinimized ? '0' : '0.5px'
+            }}
+            onMouseEnter={(e) => {
+              if (rightSidebarMinimized) {
+                e.currentTarget.style.background = 'rgba(15,12,9,0.9)';
+                e.currentTarget.style.borderLeftColor = 'rgba(212,175,55,0.6)';
+              } else {
+                e.currentTarget.style.color = '#d4af37';
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (rightSidebarMinimized) {
+                e.currentTarget.style.background = 'rgba(15,12,9,0.7)';
+                e.currentTarget.style.borderLeftColor = 'rgba(212,175,55,0.4)';
+              } else {
+                e.currentTarget.style.color = '#7a6f5d';
+              }
+            }}
+            title={rightSidebarMinimized ? 'Show deck zones' : 'Hide deck zones'}
+          >
+            {rightSidebarMinimized ? '‹' : 'hide ›'}
+          </button>
+
+          {!rightSidebarMinimized && (
+            <>
+          <h3 style={{ margin: '60px 0 16px 0', fontSize: '1.1rem', fontFamily: 'Cinzel, serif', color: '#d4af37' }}>
             Deck Zones
           </h3>
 
@@ -1589,20 +1999,16 @@ export default function DeckBuilder() {
                             min={dc.zone === 'legend' || dc.zone === 'champion' ? 1 : 0}
                             max={dc.zone === 'legend' || dc.zone === 'champion' ? 1 : (dc.zone === 'rune' ? ZONE_CONFIGS.rune.max : 3)}
                             value={dc.quantity}
+                            onClick={(e) => e.stopPropagation()}
                             onChange={(e) => {
                               const raw = Number(e.target.value);
                               if (Number.isNaN(raw)) return;
-                              setDeckCards((prev) => prev.map((item) => item.id === dc.id ? { ...item, quantity: raw } : item));
-                            }}
-                            onBlur={(e) => {
-                              const raw = Number(e.target.value);
-                              if (Number.isNaN(raw)) {
-                                updateDeckCardQuantity(dc, dc.quantity);
-                                return;
-                              }
+
                               const min = dc.zone === 'legend' || dc.zone === 'champion' ? 1 : 0;
                               const max = dc.zone === 'legend' || dc.zone === 'champion' ? 1 : (dc.zone === 'rune' ? ZONE_CONFIGS.rune.max : 3);
                               const clamped = Math.min(Math.max(raw, min), max);
+
+                              setDeckCards((prev) => prev.map((item) => item.id === dc.id ? { ...item, quantity: clamped } : item));
                               updateDeckCardQuantity(dc, clamped);
                             }}
                             onKeyDown={(e) => {
@@ -1640,7 +2046,10 @@ export default function DeckBuilder() {
                             )}
                           </div>
                           <button
-                            onClick={() => removeCard(dc)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              removeCard(dc);
+                            }}
                             style={{
                               padding: '6px',
                               background: 'rgba(248,113,113,0.2)',
@@ -1683,6 +2092,8 @@ export default function DeckBuilder() {
               </div>
             );
           })}
+          </>
+          )}
         </div>
       </div>
 
@@ -1765,38 +2176,13 @@ export default function DeckBuilder() {
                     e.currentTarget.style.borderColor = 'rgba(212,175,55,0.3)';
                   }}
                 >
-                  <div style={{
-                    position: 'relative',
-                    width: '100%',
-                    background: 'rgba(15,12,9,0.95)'
-                  }}>
-                    {variant.image_url ? (
-                      <>
-                        <img 
-                          src={`/api/proxy-image?url=${encodeURIComponent(variant.image_url)}`}
-                          alt={variant.name}
-                          style={{
-                            width: '100%',
-                            height: 'auto',
-                            display: 'block'
-                          }}
-                        />
-                        <div style={{
-                          position: 'absolute',
-                          top: 0,
-                          left: 0,
-                          right: 0,
-                          bottom: 0,
-                          border: '3px solid rgba(26,20,16,0.98)',
-                          pointerEvents: 'none'
-                        }} />
-                      </>
-                    ) : (
-                      <div style={{
-                        height: '280px',
-                        background: 'linear-gradient(135deg, rgba(42,35,28,0.9), rgba(30,25,20,0.9))'
-                      }} />
-                    )}
+                  <div style={{ position: 'relative', width: '100%' }}>
+                    <ImageWithSkeleton
+                      src={variant.image_url}
+                      alt={variant.name}
+                      height={300}
+                      borderColor="rgba(26,20,16,0.98)"
+                    />
                   </div>
                   <div style={{ padding: '8px', textAlign: 'center' }}>
                     <div style={{ fontWeight: 'bold', fontSize: '13px', color: '#f0e6d2', marginBottom: '4px' }}>
@@ -1863,9 +2249,6 @@ export default function DeckBuilder() {
       )}
 
       <style jsx>{`
-        .deck-builder button {
-          box-shadow: none !important;
-        }
         
         @keyframes slideDown {
           from {
@@ -1876,6 +2259,11 @@ export default function DeckBuilder() {
             transform: translateX(-50%) translateY(0);
             opacity: 1;
           }
+        }
+
+        @keyframes card-skeleton {
+          0% { background-position: 200% 0; }
+          100% { background-position: -200% 0; }
         }
       `}</style>
     </Layout>

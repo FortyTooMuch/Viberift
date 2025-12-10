@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import Layout from '../components/Layout';
 import Button from '../components/Button';
-import { LogIn, Plus, Layers, Check, X } from 'lucide-react';
+import { LogIn, Plus, Layers, Check, X, Share2 } from 'lucide-react';
 import CollectionCard from '../components/CollectionCard';
 import DeckCard from '../components/DeckCard';
 import { TextInputModal, ConfirmModal, ImageModal } from '../components/Modals';
@@ -20,6 +20,7 @@ type ModalType =
   | 'imageDeck'
   | 'duplicateDeck'
   | 'deleteDeck'
+  | 'shareDeck'
   | null;
 
 const Home: React.FC = () => {
@@ -35,6 +36,8 @@ const Home: React.FC = () => {
   const [loadingCards, setLoadingCards] = useState(false);
   const [deckMetadata, setDeckMetadata] = useState<Record<string, { domains: string[]; valid: boolean }>>({});
   const [vaultMetadata, setVaultMetadata] = useState<Record<string, { totalValue: number }>>({});
+  const [shareLink, setShareLink] = useState<string | null>(null);
+  const [generatingLink, setGeneratingLink] = useState(false);
 
   const { collections, setCollections, loading: loadingCollections } = useCollections(user);
   const { decks, setDecks, loading: loadingDecks } = useDecks(user);
@@ -485,6 +488,87 @@ const Home: React.FC = () => {
     setSelectedDeck(null);
   };
 
+  const openShareDeck = (deck: any) => {
+    setSelectedDeck(deck);
+    setShareLink(null);
+    setModalType('shareDeck');
+    setMenuOpen(null);
+  };
+
+  const generateShareLink = async () => {
+    if (!selectedDeck) return;
+    const token = await getToken();
+    if (!token) return;
+    
+    setGeneratingLink(true);
+    try {
+      const res = await fetch(`/api/decks/${selectedDeck.id}/share`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      if (res.ok) {
+        const data = await res.json();
+        const link = `${window.location.origin}/shared/${data.token}`;
+        setShareLink(link);
+      }
+    } catch (error) {
+      console.error('Generate share link error:', error);
+    } finally {
+      setGeneratingLink(false);
+    }
+  };
+
+  const exportDeckToCSV = () => {
+    if (!selectedDeck) return;
+    
+    // We'll need to fetch the deck cards first
+    const fetchAndExport = async () => {
+      const token = await getToken();
+      if (!token) return;
+
+      const res = await fetch(`/api/decks/${selectedDeck.id}/cards`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        const rows = [['Zone', 'Card Name', 'Quantity', 'Category']];
+        
+        data.cards?.forEach((dc: any) => {
+          if (dc.card) {
+            rows.push([
+              dc.zone,
+              dc.card.name,
+              dc.quantity.toString(),
+              dc.card.category || ''
+            ]);
+          }
+        });
+
+        const csvContent = rows.map(row => 
+          row.map(cell => `"${cell.replace(/"/g, '""')}"`).join(',')
+        ).join('\n');
+
+        const blob = new Blob([csvContent], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `${selectedDeck.name || 'deck'}.csv`;
+        link.click();
+        URL.revokeObjectURL(url);
+      }
+    };
+
+    fetchAndExport();
+  };
+
+  const copyShareLink = () => {
+    if (shareLink) {
+      navigator.clipboard.writeText(shareLink);
+    }
+  };
+
   return (
     <Layout>
       {authChecking ? (
@@ -578,6 +662,8 @@ const Home: React.FC = () => {
                     onRename={() => openRenameDeck(deck)}
                     onChooseImage={() => openDeckImage(deck)}
                     onDuplicate={() => openDuplicateDeck(deck)}
+                    onShare={() => openShareDeck(deck)}
+                    onDelete={() => openDeleteDeck(deck)}
                     onDelete={() => openDeleteDeck(deck)}
                   />
                 ))}
@@ -690,6 +776,189 @@ const Home: React.FC = () => {
         confirmLabel="Delete"
         danger
       />
+
+      {/* Share Deck Modal */}
+      {modalType === 'shareDeck' && selectedDeck && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0,0,0,0.85)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 10000,
+            padding: '24px'
+          }}
+          onClick={() => setModalType(null)}
+        >
+          <div
+            style={{
+              background: 'linear-gradient(135deg, rgba(15,12,9,0.98), rgba(26,20,16,0.98))',
+              border: '2px solid rgba(212,175,55,0.5)',
+              borderRadius: '12px',
+              padding: '24px',
+              maxWidth: '500px',
+              width: '100%'
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 style={{ margin: '0 0 20px 0', fontSize: '1.5rem', fontFamily: 'Cinzel, serif', color: '#d4af37' }}>
+              Share {selectedDeck.name}
+            </h2>
+
+            {/* Export CSV */}
+            <div style={{ marginBottom: '20px', padding: '16px', background: 'rgba(0,0,0,0.3)', borderRadius: '8px', border: '1px solid rgba(212,175,55,0.3)' }}>
+              <h3 style={{ margin: '0 0 8px 0', fontSize: '1rem', color: '#f0e6d2' }}>Export as CSV</h3>
+              <p style={{ margin: '0 0 12px 0', fontSize: '0.9rem', color: '#a0a0a0' }}>
+                Download your deck list as a CSV file
+              </p>
+              <button
+                onClick={() => {
+                  exportDeckToCSV();
+                  setModalType(null);
+                }}
+                style={{
+                  width: '100%',
+                  padding: '10px',
+                  borderRadius: '6px',
+                  border: '1px solid rgba(74,222,128,0.4)',
+                  background: 'transparent',
+                  color: '#4ade80',
+                  cursor: 'pointer',
+                  fontWeight: '500',
+                  fontSize: '14px',
+                  transition: 'all 0.2s ease',
+                  boxShadow: 'none'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = 'rgba(74,222,128,0.1)';
+                  e.currentTarget.style.borderColor = 'rgba(74,222,128,0.6)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = 'transparent';
+                  e.currentTarget.style.borderColor = 'rgba(74,222,128,0.4)';
+                }}
+              >
+                Download CSV
+              </button>
+            </div>
+
+            {/* Generate Public Link */}
+            <div style={{ marginBottom: '20px', padding: '16px', background: 'rgba(0,0,0,0.3)', borderRadius: '8px', border: '1px solid rgba(212,175,55,0.3)' }}>
+              <h3 style={{ margin: '0 0 8px 0', fontSize: '1rem', color: '#f0e6d2' }}>Public Link</h3>
+              <p style={{ margin: '0 0 12px 0', fontSize: '0.9rem', color: '#a0a0a0' }}>
+                Create a shareable link that anyone can view
+              </p>
+              {shareLink ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <div style={{ 
+                    padding: '10px', 
+                    background: 'rgba(26,20,16,0.6)', 
+                    border: '1px solid #3d352d', 
+                    borderRadius: '4px',
+                    color: '#f0e6d2',
+                    fontSize: '13px',
+                    wordBreak: 'break-all'
+                  }}>
+                    {shareLink}
+                  </div>
+                  <button
+                    onClick={copyShareLink}
+                    style={{
+                      width: '100%',
+                      padding: '10px',
+                      borderRadius: '6px',
+                      border: '1px solid rgba(96,165,250,0.4)',
+                      background: 'transparent',
+                      color: '#60a5fa',
+                      cursor: 'pointer',
+                      fontWeight: '500',
+                      fontSize: '14px',
+                      transition: 'all 0.2s ease',
+                      boxShadow: 'none'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = 'rgba(96,165,250,0.1)';
+                      e.currentTarget.style.borderColor = 'rgba(96,165,250,0.6)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = 'transparent';
+                      e.currentTarget.style.borderColor = 'rgba(96,165,250,0.4)';
+                    }}
+                  >
+                    Copy Link
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={generateShareLink}
+                  disabled={generatingLink}
+                  style={{
+                    width: '100%',
+                    padding: '10px',
+                    borderRadius: '6px',
+                    border: generatingLink ? '1px solid rgba(153,153,153,0.4)' : '1px solid rgba(192,132,252,0.4)',
+                    background: 'transparent',
+                    color: generatingLink ? '#999999' : '#c084fc',
+                    cursor: generatingLink ? 'not-allowed' : 'pointer',
+                    fontWeight: '500',
+                    fontSize: '14px',
+                    transition: 'all 0.2s ease',
+                    opacity: generatingLink ? 0.5 : 1,
+                    boxShadow: 'none'
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!generatingLink) {
+                      e.currentTarget.style.background = 'rgba(192,132,252,0.1)';
+                      e.currentTarget.style.borderColor = 'rgba(192,132,252,0.6)';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!generatingLink) {
+                      e.currentTarget.style.background = 'transparent';
+                      e.currentTarget.style.borderColor = 'rgba(192,132,252,0.4)';
+                    }
+                  }}
+                >
+                  {generatingLink ? 'Generating...' : 'Generate Link'}
+                </button>
+              )}
+            </div>
+
+            {/* Close Button */}
+            <button
+              onClick={() => setModalType(null)}
+              style={{
+                width: '100%',
+                padding: '10px',
+                borderRadius: '6px',
+                border: '1px solid rgba(239,68,68,0.4)',
+                background: 'transparent',
+                color: '#ef4444',
+                cursor: 'pointer',
+                fontWeight: '500',
+                fontSize: '14px',
+                transition: 'all 0.2s ease',
+                boxShadow: 'none'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = 'rgba(239,68,68,0.1)';
+                e.currentTarget.style.borderColor = 'rgba(239,68,68,0.6)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'transparent';
+                e.currentTarget.style.borderColor = 'rgba(239,68,68,0.4)';
+              }}
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
     </Layout>
   );
 };

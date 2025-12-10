@@ -43,18 +43,24 @@ export default function Button({ variant = 'primary', full, style, children, ...
     <button
       {...props}
       style={{ ...base, ...variants[variant], ...style }}
-      onMouseDown={(e) => ((e.currentTarget.style.transform = 'scale(0.98) translateY(1px)'))}
-      onMouseUp={(e) => ((e.currentTarget.style.transform = 'scale(1) translateY(0)'))}
+      onMouseDown={(e) => {
+        e.currentTarget.style.transform = 'scale(0.98) translateY(1px)';
+      }}
+      onMouseUp={(e) => {
+        e.currentTarget.style.transform = 'scale(1) translateY(0)';
+      }}
       onMouseEnter={(e) => {
         if (variant === 'primary') {
           e.currentTarget.style.background = 'linear-gradient(135deg, #f4cf67 0%, #d4af37 100%)';
           e.currentTarget.style.boxShadow = '0 6px 16px rgba(212,175,55,.5), inset 0 1px 0 rgba(255,255,255,0.25)';
+          e.currentTarget.style.transform = 'scale(1) translateY(-1px)';
         }
       }}
       onMouseLeave={(e) => {
         if (variant === 'primary') {
           e.currentTarget.style.background = 'linear-gradient(135deg, #d4af37 0%, #b8941e 100%)';
           e.currentTarget.style.boxShadow = '0 4px 12px rgba(212,175,55,.3), inset 0 1px 0 rgba(255,255,255,0.15)';
+          e.currentTarget.style.transform = 'scale(1) translateY(0)';
         }
       }}
     >

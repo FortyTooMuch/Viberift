@@ -10,6 +10,7 @@ interface DeckCardProps {
   onChooseImage: (d: any) => void;
   onDuplicate: (d: any) => void;
   onDelete: (d: any) => void;
+  onShare?: (d: any) => void;
   onValidate?: (d: any) => void;
 }
 
@@ -22,6 +23,7 @@ const DeckCard: React.FC<DeckCardProps> = ({
   onChooseImage,
   onDuplicate,
   onDelete,
+  onShare,
   onValidate,
 }) => {
   const parseImage = (raw?: string | null) => {
@@ -323,6 +325,30 @@ const DeckCard: React.FC<DeckCardProps> = ({
         >
           Duplicate
         </button>
+        {onShare && (
+          <button
+            onClick={e => {
+              e.preventDefault();
+              e.stopPropagation();
+              onShare(d);
+            }}
+            style={{
+              width: '100%',
+              padding: '10px 16px',
+              background: 'transparent',
+              border: 'none',
+              color: '#b8a895',
+              textAlign: 'left',
+              cursor: 'pointer',
+              fontSize: 14,
+              borderBottom: '1px solid rgba(212,175,55,0.2)',
+            }}
+            onMouseEnter={e => (e.currentTarget.style.background = 'rgba(212,175,55,0.1)')}
+            onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+          >
+            Share
+          </button>
+        )}
         <button
           onClick={e => {
             e.preventDefault();

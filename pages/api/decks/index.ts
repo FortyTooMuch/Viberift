@@ -47,12 +47,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       .order('updated_at', { ascending: false });
 
     if (error) return res.status(500).json({ error: error.message });
+    
+    console.log(`Returning ${decks?.length || 0} decks for user ${user.id} (${user.email})`);
+    console.log('Deck IDs:', decks?.map(d => ({ id: d.id, name: d.name })));
+    
     return res.status(200).json({ decks });
   }
 
   if (req.method === 'POST') {
     // Create new deck
     const { name, description } = req.body;
+
+    console.log('Creating deck for user:', user.id, user.email);
+    console.log('Deck name:', name);
 
     const { data: deck, error } = await supabaseServer
       .from('decks')
@@ -64,7 +71,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       .select()
       .single();
 
-    if (error) return res.status(500).json({ error: error.message });
+    if (error) {
+      console.error('Deck creation error:', error);
+      return res.status(500).json({ error: error.message });
+    }
+    
+    console.log('Deck created successfully:', deck.id, deck.name);
     return res.status(201).json(deck);
   }
 
