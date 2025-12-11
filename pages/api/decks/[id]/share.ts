@@ -32,7 +32,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         .select('id, name, user_id')
         .eq('user_id', user.id);
       
-      console.log('User decks:', allUserDecks?.map(d => ({ id: d.id, name: d.name })));
+      console.log('User decks:', allUserDecks?.map((d: { id: string; name: string }) => ({ id: d.id, name: d.name })));
       console.log('Requested deck ID:', id);
       
       // Also check who owns the requested deck
@@ -57,7 +57,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
       if (checkError || !deckCheck) {
         console.error('Deck not found:', id, checkError);
-        console.error('Available deck IDs:', allUserDecks?.map(d => d.id));
+        console.error('Available deck IDs:', allUserDecks?.map((d: { id: string }) => d.id));
         return res.status(404).json({ error: 'Deck not found' });
       }
 

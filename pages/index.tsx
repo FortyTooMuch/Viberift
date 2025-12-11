@@ -110,8 +110,8 @@ const Home: React.FC = () => {
           const items = itemsData.items || [];
 
           // Fetch prices for all cards in this vault
-          const cardIds = [...new Set(items.map((i: any) => i.card_id as string))];
-          const pricePromises = cardIds.map(async (cardId) => {
+          const cardIds: string[] = Array.from(new Set(items.map((i: any) => String(i.card_id)))) as string[];
+          const pricePromises = cardIds.map(async (cardId: string) => {
             try {
               const priceRes = await fetch(`/api/prices?cardId=${encodeURIComponent(cardId)}`);
               const priceData = await priceRes.json();
@@ -663,7 +663,6 @@ const Home: React.FC = () => {
                     onChooseImage={() => openDeckImage(deck)}
                     onDuplicate={() => openDuplicateDeck(deck)}
                     onShare={() => openShareDeck(deck)}
-                    onDelete={() => openDeleteDeck(deck)}
                     onDelete={() => openDeleteDeck(deck)}
                   />
                 ))}

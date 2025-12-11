@@ -67,6 +67,9 @@ export default function SharedDeckView() {
   const [hoverPos, setHoverPos] = useState<{ x: number; y: number } | null>(null);
   const [sortField, setSortField] = useState<SortField>('name');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+  const [expandedZones, setExpandedZones] = useState<Set<Zone>>(
+    new Set<Zone>(['legend', 'champion', 'battlefield', 'rune', 'main', 'side'])
+  );
   const previewSize = { width: 240, height: 340 };
   const handlePrint = () => {
     if (viewMode !== 'list') {

@@ -49,7 +49,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (error) return res.status(500).json({ error: error.message });
     
     console.log(`Returning ${decks?.length || 0} decks for user ${user.id} (${user.email})`);
-    console.log('Deck IDs:', decks?.map(d => ({ id: d.id, name: d.name })));
+    console.log(
+      'Deck IDs:',
+      decks?.map((d: { id: string | number; name: string }) => ({ id: d.id, name: d.name }))
+    );
     
     return res.status(200).json({ decks });
   }

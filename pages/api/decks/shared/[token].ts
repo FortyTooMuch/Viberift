@@ -52,7 +52,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     // Fetch card details separately
-    const cardIds = deckCards?.map(dc => dc.card_id).filter(Boolean) || [];
+    const cardIds = deckCards?.map((dc: { card_id: string | number }) => dc.card_id).filter(Boolean) || [];
     let cardDetails: any[] = [];
     
     if (cardIds.length > 0) {
@@ -69,10 +69,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     // Attach card details to deck cards
-    const deckCardsWithDetails = deckCards?.map(dc => ({
-      ...dc,
-      card: cardDetails.find(c => c.card_id === dc.card_id)
-    })) || [];
+    const deckCardsWithDetails =
+      deckCards?.map((dc: { card_id: string | number; [key: string]: any }) => ({
+        ...dc,
+        card: (cardDetails as Array<{ card_id: string | number }>).find(
+          (c: { card_id: string | number }) => c.card_id === dc.card_id
+        )
+      })) || [];
 
     return res.status(200).json({
       deck: { ...deck, owner_name: ownerName },
