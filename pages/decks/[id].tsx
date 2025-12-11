@@ -174,6 +174,8 @@ export default function DeckBuilder() {
   const [shareModalOpen, setShareModalOpen] = useState(false);
   const [shareLink, setShareLink] = useState<string | null>(null);
   const [generatingLink, setGeneratingLink] = useState(false);
+  const [ownedCardIds, setOwnedCardIds] = useState<Set<string>>(new Set());
+  const [loadingOwned, setLoadingOwned] = useState(false);
   const [leftSidebarMinimized, setLeftSidebarMinimized] = useState(false);
   const [rightSidebarMinimized, setRightSidebarMinimized] = useState(false);
 
@@ -241,6 +243,41 @@ export default function DeckBuilder() {
     if (!id || !session?.access_token) return;
     loadDeck();
   }, [id, session]);
+
+  // Load owned cards across all user collections
+  useEffect(() => {
+    async function loadOwned() {
+      if (!session?.access_token) return;
+      setLoadingOwned(true);
+      try {
+        const collectionsRes = await fetch('/api/collections', { headers: { Authorization: `Bearer ${session.access_token}` } });
+        if (!collectionsRes.ok) { setLoadingOwned(false); return; }
+        const collectionsPayload = await collectionsRes.json();
+        const collections: any[] = collectionsPayload.collections || [];
+        const ownedSet = new Set<string>();
+        // Fetch cards for each collection in parallel (limit to avoid too many requests if needed)
+        await Promise.all(collections.map(async (c) => {
+          try {
+            const cardsRes = await fetch(`/api/collections/${c.id}/cards`, { headers: { Authorization: `Bearer ${session.access_token}` } });
+            if (!cardsRes.ok) return;
+            const cardsPayload = await cardsRes.json();
+            const items = cardsPayload.cards || cardsPayload.items || [];
+            items.forEach((it: any) => {
+              if (it.card_id) ownedSet.add(it.card_id);
+              // some payloads might nest card object
+              if (it.card?.card_id) ownedSet.add(it.card.card_id);
+            });
+          } catch {}
+        }));
+        setOwnedCardIds(ownedSet);
+      } catch {
+        setOwnedCardIds(new Set());
+      } finally {
+        setLoadingOwned(false);
+      }
+    }
+    loadOwned();
+  }, [session]);
 
   const loadDeck = async () => {
     if (!session?.access_token || !id) return;
@@ -440,11 +477,10 @@ export default function DeckBuilder() {
         return false;
       }
 
-      // Owned filter - skip for now, needs proper collection integration
-      // if (showOwnedOnly) {
-      //   const isInDeck = deckCards.find(dc => dc.card_id === card.card_id && dc.is_owned);
-      //   if (!isInDeck) return false;
-      // }
+      // Owned filter
+      if (showOwnedOnly) {
+        if (!ownedCardIds.has(card.card_id)) return false;
+      }
 
       // Zone-specific filters
       switch (selectedZone) {
