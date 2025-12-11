@@ -163,8 +163,22 @@ const Home: React.FC = () => {
     return () => subscription.data.subscription?.unsubscribe();
   }, []);
 
-  const signInGoogle = () => supabase.auth.signInWithOAuth({ provider: 'google' });
-  const signInDiscord = () => supabase.auth.signInWithOAuth({ provider: 'discord' });
+  const redirectBase =
+    typeof window !== 'undefined'
+      ? window.location.origin
+      : process.env.NEXT_PUBLIC_SITE_URL;
+
+  const signInGoogle = () =>
+    supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo: redirectBase || undefined }
+    });
+
+  const signInDiscord = () =>
+    supabase.auth.signInWithOAuth({
+      provider: 'discord',
+      options: { redirectTo: redirectBase || undefined }
+    });
 
   const getToken = async () => {
     const session = await supabase.auth.getSession();
